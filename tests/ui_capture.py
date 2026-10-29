@@ -49,24 +49,31 @@ class Session:
    cells.append([{'text':screen.buffer[row][col].data,'fg':screen.buffer[row][col].fg,'bg':screen.buffer[row][col].bg,'bold':screen.buffer[row][col].bold,'italic':screen.buffer[row][col].italics,'underline':screen.buffer[row][col].underscore,'reverse':screen.buffer[row][col].reverse} for col in range(cols)])
   metadata={'binary_sha256':self.binary_sha256,'client':self.client,'columns':cols,'rows':rows,'cursor_visible':self.run('display-message','-p','-t',self.target,'#{cursor_flag}').strip(),'cursor':self.run('display-message','-p','-t',self.target,'#{cursor_x} #{cursor_y}').strip(),'cells':cells}
   path.with_suffix('.json').write_text(json.dumps(metadata,ensure_ascii=False,separators=(',',':'))+'\n')
-  normal=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',16);bold=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',16);cjk=ImageFont.truetype('/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',16)
-  width,height=10,21;image=Image.new('RGB',(cols*width,rows*height),'#1e1e2e');draw=ImageDraw.Draw(image)
-  colors={'black':'#45475a','red':'#f38ba8','green':'#a6e3a1','brown':'#f9e2af','blue':'#89b4fa','magenta':'#cba6f7','cyan':'#89dceb','white':'#cdd6f4'}
-  def color(value,default):return '#'+value if re.fullmatch('[a-fA-F0-9]{6}',value) else colors.get(value,default)
-  for row,line in enumerate(cells):
-   for col,cell in enumerate(line):
-    fg=color(cell['fg'],'#cdd6f4');bg=color(cell['bg'],'#1e1e2e')
-    if cell['reverse']:fg,bg=bg,fg
-    x,y=col*width,row*height;draw.rectangle((x,y,x+width-1,y+height-1),fill=bg)
-  for row,line in enumerate(cells):
-   for col,cell in enumerate(line):
-    fg=color(cell['fg'],'#cdd6f4');bg=color(cell['bg'],'#1e1e2e')
-    if cell['reverse']:fg,bg=bg,fg
-    x,y=col*width,row*height
-    text=cell['text']
-    font=cjk if any(0x2e80<=ord(ch)<=0x9fff for ch in text) else bold if cell['bold'] else normal
-    draw.text((x,y+1),text,font=font,fill=fg)
-    if cell['underline']:draw.line((x,y+height-2,x+width-1,y+height-2),fill=fg)
-  image.save(path.with_suffix('.png'))
+  render_capture(metadata,path)
   return metadata
  def close(self):subprocess.run(['tmux','-L',self.socket,'kill-server'],capture_output=True)
+
+
+def render_capture(metadata,path):
+ """Render recorded cells, with symbol fallbacks for terminal status glyphs."""
+ from PIL import Image,ImageDraw,ImageFont
+ cells=metadata['cells'];cols=metadata['columns'];rows=metadata['rows'];path=pathlib.Path(path)
+ normal=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf',16);bold=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf',16);symbols=ImageFont.truetype('/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',16);pause=ImageFont.truetype('/usr/share/fonts/truetype/freefont/FreeSans.ttf',16);cjk=ImageFont.truetype('/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',16)
+ width,height=10,21;image=Image.new('RGB',(cols*width,rows*height),'#1e1e2e');draw=ImageDraw.Draw(image)
+ colors={'black':'#45475a','red':'#f38ba8','green':'#a6e3a1','brown':'#f9e2af','blue':'#89b4fa','magenta':'#cba6f7','cyan':'#89dceb','white':'#cdd6f4'}
+ def color(value,default):return '#'+value if re.fullmatch('[a-fA-F0-9]{6}',value) else colors.get(value,default)
+ for row,line in enumerate(cells):
+  for col,cell in enumerate(line):
+   fg=color(cell['fg'],'#cdd6f4');bg=color(cell['bg'],'#1e1e2e')
+   if cell['reverse']:fg,bg=bg,fg
+   x,y=col*width,row*height;draw.rectangle((x,y,x+width-1,y+height-1),fill=bg)
+ for row,line in enumerate(cells):
+  for col,cell in enumerate(line):
+   fg=color(cell['fg'],'#cdd6f4');bg=color(cell['bg'],'#1e1e2e')
+   if cell['reverse']:fg,bg=bg,fg
+   x,y=col*width,row*height
+   text=cell['text']
+   font=pause if '\u23f8' in text else symbols if any(0x2800<=ord(ch)<=0x28ff for ch in text) else cjk if any(0x2e80<=ord(ch)<=0x9fff for ch in text) else bold if cell['bold'] else normal
+   draw.text((x,y+1),text,font=font,fill=fg)
+   if cell['underline']:draw.line((x,y+height-2,x+width-1,y+height-2),fill=fg)
+ image.save(path.with_suffix('.png'))
