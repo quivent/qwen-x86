@@ -1,0 +1,30 @@
+
+   ▄▄▄▄▄▄  ▄▄     ▄▄ ▄▄▄▄▄▄▄ ▄▄▄    ▄▄   ┌───────────────────────────────────────────────────────┐
+  ██╔═══██╗██║    ██║██╔════╝████╗  ██║  │ >_ Qwen Code (v0.24.5)                                │
+  ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                       │
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-rich-capture-2b7jsfsw/workspace             │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘
+
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.
+  ●︎ Read context files: ~/.qwen/output-language.md
+
+  > UI_RICH_rich-mermaid
+
+  ◆︎ Flow
+
+     Mermaid flowchart (LR) · source: /copy mermaid 1
+                   ┌──────┐                   ┌───────┐                    ┌──────┐
+                   │ Read │──────────────────▶│ Write │───────────────────▶│ Done │
+                   └──────┘                   └───────┘                    └──────┘
+
+
+    UI_RICH_DONE
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ workspace · bench-model
+  ⏸ Ask permissions (shift + tab to cycle)
+

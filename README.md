@@ -1,14 +1,29 @@
 # qwen-x86
 
-**Historical v0.1.0 core: 103,120 bytes (100.7 KiB)** — statically linked x86-64 assembly, including TLS and cryptography. No libc, Node.js, Go runtime, or shared TLS library.
+**Private UI checkpoint: 3,446,008 bytes (3.29 MiB)** — statically linked x86-64 assembly, including TLS and cryptography. No libc, Node.js, Go runtime, or shared TLS library.
 
-[See the running assembly UI](#the-assembly-ui) · [Download the private checkpoint](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-checkpoint.2) · [Known misses](#known-misses)
+[See the running assembly UI](#the-assembly-ui) · [Download the private review build](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-checkpoint.2)
 
 ## Benchmarks
 
-### Historical v0.1.0 tool-loop performance
+### Historical UI review: actual interactive rendering
 
-Twenty randomized runs per variant and transport on this machine. Lower is better. The same five tool steps and their outputs are verified in each run.
+These measurements describe `v0.2.0-ui-review.1` (267,216 bytes), not the current checkpoint.
+
+Medians of three repetitions per client, 100×30 terminal, the same 56,033-byte response in 399 paced chunks. Lower is better. Timing and memory use separate passes; every full response is verified through a subsequent model request.
+
+| Measurement | qwen-x86 UI review | Qwen Code 0.24.5 Ink |
+|---|---:|---:|
+| Launch → ready screen | 57.4 ms | 5,256.1 ms |
+| First response byte → end visible | 991.8 ms | 1,659.4 ms |
+| CPU after ready → end visible | 270.0 ms | 4,550.0 ms |
+| Sampled peak process-tree PSS | 1.0 MiB | 449.9 MiB |
+
+The stream is paced at 2 ms per chunk; terminal polling adds up to 100 ms. Startup includes tmux. These are local client measurements with different available feature sets, not real inference, WAN latency or proof of UI parity. [Timing data and limits](docs/ui-benchmark.json) · [Separate memory pass](docs/ui-benchmark-memory.json) · [Screen comparison](docs/ui-parity.md).
+
+### v0.1.0 core-client tool-loop performance
+
+The earlier core executable was **103,120 bytes**. Twenty randomized runs per variant and transport on this machine. Lower is better. The same five tool steps and their outputs are verified in each run.
 
 | Client | HTTP median | HTTP p95 | HTTPS median | HTTPS p95 |
 |---|---:|---:|---:|---:|
@@ -29,6 +44,8 @@ These earlier measurements preceded the wait optimization. Streaming and memory 
 | Peak proportional memory during that stream | 0.37 MiB | 13.55 MiB | 257.98 MiB |
 
 Local controlled fixtures measure client overhead. The clients have different feature sets; JavaScript includes extra default cleanup. These results do not measure real model inference, WAN latency, or interactive TUI rendering. [Usage methodology](docs/usage-benchmark.json) · [Startup methodology](docs/benchmark.json) · [Detailed optimization](#critical-path-wait-optimization).
+
+**Private checkpoint on `fix/ui-parity`. Full UI parity is unfinished.** Known omissions are listed explicitly below; the project is paused for review.
 
 A Linux x86-64 coding client written in GNU Intel-syntax assembly. The production executable is statically linked assembly: no libc, JavaScript engine, Go runtime, shared TLS library, or HTTPS helper process.
 
@@ -65,7 +82,7 @@ Recorded from the running assembly executable, using real terminal sessions and 
 
 This checkpoint adds native agent/extension management, session rename and multi-select deletion, text/image `@file` input, custom themes, controlling shell PTYs, persisted exact-command permissions, configured provider selection, masked account setup, and Anthropic/Responses/Gemini adapters. Native child mutations use parent approval; external Codex/ACP agents use their actual process protocols. These implementations and their tests do not establish complete source equivalence.
 
-**The benchmark tables above describe earlier binaries. This checkpoint has not been benchmarked again.** [Current verification receipt](https://github.com/quivent/qwen-x86/blob/fix/ui-parity/docs/ui-checkpoint-verification.json) · [Recorded comparisons](https://github.com/quivent/qwen-x86/blob/fix/ui-parity/docs/ui-parity.md).
+**The benchmark tables above describe earlier binaries. This checkpoint has not been benchmarked again.** [Current verification receipt](docs/ui-checkpoint-verification.json) · [Recorded comparisons](docs/ui-parity.md).
 
 **Validation:** 490 tests passed; 1 optional public-network probe skipped (491 discovered). A source-only rebuild produced the identical executable. All 25 native capture records match its SHA-256.
 
@@ -90,7 +107,7 @@ This checkpoint adds native agent/extension management, session rename and multi
 
 ## Install globally
 
-The prebuilt Linux x86-64 UI review executable is available in [Releases](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-checkpoint.2). This is a private, incomplete checkpoint for review; [remaining differences](https://github.com/quivent/qwen-x86/blob/fix/ui-parity/docs/ui-parity.md) are explicit. It includes TLS and cryptography. Running it requires Linux x86-64, AES-NI, and a PEM CA trust store, normally `/etc/ssl/certs/ca-certificates.crt`.
+The prebuilt Linux x86-64 UI review executable is available in [Releases](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-checkpoint.2). This is a private, incomplete checkpoint for review; [remaining differences](docs/ui-parity.md) are explicit. It includes TLS and cryptography. Running it requires Linux x86-64, AES-NI, and a PEM CA trust store, normally `/etc/ssl/certs/ca-certificates.crt`.
 
 While the repository is private, use an authenticated GitHub CLI account with repository access:
 
@@ -141,9 +158,13 @@ qwen-x86 --version
 
 ## Features
 
-- Native streaming SSE/JSON, multi-round tool calls, terminal input, UTF-8 backspace, multiline input with Alt+Enter, interactive cancellation, and terminal restoration.
+- Native streaming SSE/JSON and multi-round tools with an assembly terminal UI: flowing Qwen header/composer, Markdown, common Mermaid diagrams, themes and permission previews.
+- Unicode grapheme editing, multiline bracketed paste, undo/redo, separate prompt/shell histories, reverse search, workspace path completion and external editor integration.
+- All 15 built-in reference themes plus Auto, OSC light/dark detection, `NO_COLOR`, user/workspace theme preferences and terminal restoration.
+- Searchable native-session picker and read-only Space preview; Enter resumes. Tabbed help and explicit source-copy actions work without model requests.
+- Busy input steering/queueing, mouse-wheel scroll and cancellation. See [UI review limits](docs/ui-parity.md) for unimplemented reference surfaces.
 - Workspace-relative `read_file`, `list_directory`, atomic `write_file`, exact `edit_file`, and approved `run_shell`. File tools reject symlinks and parent traversal, with a 64 KiB text limit. Shell commands execute with the user's ordinary account permissions.
-- Up to three concurrent forked read-only agents, separate histories, saved follow-ups, status, waiting, and cancellation.
+- Up to three concurrent forked agents, read-only by default, with parent approval for inherited writes, separate histories, saved follow-ups, waiting and cancellation. Codex/ACP external agents require their installed executables.
 - Interactive Ctrl+C stops a running shell or MCP operation and skips remaining tool calls in that response. Canceled batches save matching tool results before returning to the prompt.
 - Private atomic JSON session snapshots under `~/.local/state/qwen-x86/`; `--resume FILE`, `--no-save`, and `/new`.
 - Shared Go-client prompt/skill plugin folders at `~/.config/qwen-go/plugins` and `.qwen-go/plugins`. List with `--plugins` or `/plugins`; invoke `/plugin:command` or `/skill plugin:skill`.
@@ -170,7 +191,7 @@ python3 tests/bench_client.py
 
 Tests use Python, Python `cryptography`, and local OpenSSL-compatible TLS servers as independent test oracles. These are development dependencies only. Fixtures exercise cryptographic known-answer/random cases, malformed inputs, actual HTTPS model/tool/session flows, denial paths, process cleanup, and native parallel workers. The optional public probe performs verified TLS to the default API host without sending an HTTP request or credentials.
 
-[The verification receipt](docs/verification.json) records the executable hash, source hashes, static linkage, and test scope.
+[The v0.1.0 verification receipt](docs/verification.json) records the earlier core executable, source hashes, static linkage, and test scope. It does not describe the UI review branch. Current UI evidence is tracked in [the parity review](docs/ui-parity.md).
 
 [Benchmark results](docs/benchmark.json) compare the assembly and Go executables and the installed JavaScript command on this machine. They measure warm process startup and, for the native clients, idle offline-terminal memory, not remote model latency, sustained token throughput, or complete Qwen Code feature parity. No authenticated remote model run or real device authorization is implied by local fixtures. The native TLS handshake has separately been verified against `chat.qwen.ai`, `dashscope.aliyuncs.com`, and `dashscope-intl.aliyuncs.com` without sending HTTP or credentials.
 

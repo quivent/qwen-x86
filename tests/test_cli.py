@@ -175,8 +175,12 @@ class ConcurrentServer:
                     request = json.loads(body)
                     self.records.append((channel, request))
                     payload = self.handler(request)
+                    status = 200
+                    if isinstance(payload, tuple):
+                        status, payload = payload
                     mode = b"keep-alive" if self.keepalive else b"close"
-                    connection.sendall(b"HTTP/1.1 200 OK\r\nConnection: " + mode + b"\r\nContent-Type: text/event-stream\r\nContent-Length: " + str(len(payload)).encode() + b"\r\n\r\n" + payload)
+                    content_type = b"text/event-stream" if status == 200 else b"application/json"
+                    connection.sendall(b"HTTP/1.1 " + str(status).encode() + b" Fixture\r\nConnection: " + mode + b"\r\nContent-Type: " + content_type + b"\r\nContent-Length: " + str(len(payload)).encode() + b"\r\n\r\n" + payload)
                     if not self.keepalive:
                         return
         except Exception as exc:
@@ -199,7 +203,9 @@ class CLITest(unittest.TestCase):
     def setUpClass(cls):
         cls.build = tempfile.TemporaryDirectory(prefix="qwen-x86-cli-")
         build = Path(cls.build.name)
-        names = ("main", "runtime", "json", "stream", "terminal", "tools", "http", "net", "agents", "plugins", "mcp", "mcp_server", "oauth", "sha256")
+        # Keep the HTTP-only TLS-stub fixture aligned with production modules.
+        source_line=next(line for line in (ROOT/'Makefile').read_text().splitlines() if line.startswith('SOURCES :='))
+        names=tuple(name for name in source_line.split(':=',1)[1].split() if name not in {'tls','x25519','aesgcm','rsa','x509'})
         for name in names:
             subprocess.run(["as", "--64", "-I", str(ROOT / "src"), "-o", str(build / (name + ".o")), str(ROOT / "src" / (name + ".s"))], cwd=ROOT, check=True)
         stub = build / "tls-test-stub.s"
@@ -465,7 +471,7 @@ class CLITest(unittest.TestCase):
                         break
             self.assertIn(needle, output, bytes(output))
         try:
-            read_until(b"QWEN x86")
+            read_until(b"Qwen Code")
             os.write(master, b"ask\r")
             read_until(b"Request failed")
             os.write(master, b"/quit\r")

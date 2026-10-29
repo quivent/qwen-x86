@@ -1,0 +1,30 @@
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   █
+  Tips: You can resume a previous conversation by running qwen --continue or qwen --resume.        █
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.                              █
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                              │
+  │  Settings    Status    Stats   (↑ to switch tabs)                                            │
+  │                                                                                              │
+  │ ╭──────────────────────────────────────────────────────────────────────────────────────────╮ │
+  │ │ ⌕ Search settings…                                                                       │ │
+  │ ╰──────────────────────────────────────────────────────────────────────────────────────────╯ │
+  │                                                                                              │
+  │ ●︎ Tool Approval Mode                                                                    Auto │
+  │   Code Mode Only (Experimental)                                                        false │
+  │   Language: UI                                                     Auto (detect from system) │
+  │   Language: Model                                                   Auto (follow user input) │
+  │   Theme                                                                          Qwen Dark ▸ │
+  │   Vim Mode                                                                             false │
+  │   Interactive Shell (PTY)                                                          (not set) │
+  │   Preferred Editor                                                                         ▸ │
+  │   Auto-connect to IDE                                                                  false │
+  │   Show Line Numbers in Code                                                             true │
+  │ ▼                                                                                            │
+  │                                                                                              │
+  │ Approval mode for tool usage. Controls how tools are approved before execution.              │
+  │ (Use Enter to select, Tab to configure scope)                                                │
+  │                                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+

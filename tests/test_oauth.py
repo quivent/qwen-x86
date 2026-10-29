@@ -89,6 +89,25 @@ class NativeOAuth(unittest.TestCase):
  def assert_private(self,result):
   for secret in [b'fresh-access-private',b'fresh-refresh-private',b'old-access-private',b'refresh+/&=%private',b'device-private']:
    self.assertNotIn(secret,result.stdout+result.stderr)
+ def test_account_metadata_and_native_logout_do_not_delete_external_cache(self):
+  native=self.cache(expiry_date=int((time.time()+3600)*1000));external=self.cache(external=True,expiry_date=int((time.time()+3600)*1000));before=external.read_bytes()
+  program="""import ctypes as C,json,sys
+l=C.CDLL(sys.argv[1]);l.oauth_load.argtypes=[C.c_char_p];l.oauth_logout.argtypes=[C.c_char_p];l.oauth_account_status.argtypes=[C.c_void_p];l.oauth_token.restype=C.c_char_p
+h=sys.argv[2].encode();assert l.oauth_load(h)==0
+s=(C.c_uint64*4)();assert l.oauth_account_status(s)==0;assert s[0]==1 and s[1]==1 and s[2]>0
+assert l.oauth_logout(h)==0
+assert l.oauth_account_status(s)==0;assert s[0]==0 and s[1]==0 and s[2]==0
+assert l.oauth_token()==b''
+assert l.oauth_logout(h)==0
+print('metadata and disconnect verified')
+"""
+  result=subprocess.run(['python3','-c',program,str(self.library),str(self.home)],capture_output=True,timeout=5)
+  self.assertEqual(result.returncode,0,result.stderr);self.assert_private(result);self.assertFalse(native.exists());self.assertEqual(external.read_bytes(),before);self.assertEqual(self.server.requests,[])
+ def test_logout_refuses_symlink_cache_and_preserves_external_target(self):
+  target=self.home/'outside.json';target.write_text('keep');directory=self.home/'.config/qwen-x86';directory.mkdir(parents=True);(directory/'oauth.json').symlink_to(target)
+  program="import ctypes as C,sys;l=C.CDLL(sys.argv[1]);l.oauth_logout.argtypes=[C.c_char_p];sys.exit(0 if l.oauth_logout(sys.argv[2].encode())<0 else 1)"
+  result=subprocess.run(['python3','-c',program,str(self.library),str(self.home)],capture_output=True,timeout=5)
+  self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(target.read_text(),'keep');self.assertTrue((directory/'oauth.json').is_symlink())
  def test_device_login_pkce_pending_atomic_cache_and_form_headers(self):
   self.server.responses.extend([(200,self.device()),(400,{'error':'authorization_pending'}),(200,self.token())])
   result=self.invoke('login');self.assertEqual(result.returncode,0,result.stderr);self.assert_private(result)

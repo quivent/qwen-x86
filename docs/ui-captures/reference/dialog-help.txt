@@ -1,0 +1,30 @@
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   █
+  Tips: You can resume a previous conversation by running qwen --continue or qwen --resume.        █
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.                              █
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                                                                                              │
+  │  Qwen Code   general   commands   custom-commands                                            │
+  │                                                                                              │
+  │  Qwen Code understands your codebase, makes edits with your permission, and executes         │
+  │  commands right from your terminal.                                                          │
+  │                                                                                              │
+  │  Shortcuts                                                                                   │
+  │  @                   Add files or folders a…   Ctrl+Q              Queue message for the …   │
+  │  !                   Run shell commands        Ctrl+J              Insert a newline          │
+  │  /                   Open command menu         Shift+Tab           Cycle approval modes      │
+  │  Tab                 Accept ghost text or c…   Alt+←/→             Jump through words        │
+  │  Esc Esc             Clear input or cancel …   ↑/↓                 Cycle prompt history      │
+  │  Ctrl+L              Clear the screen                                                        │
+  │                                                                                              │
+  │  For more help: https://qwenlm.github.io/qwen-code-docs/                                     │
+  │                                                                                              │
+  │  Tab/Shift+Tab to switch tabs  ·  Esc to cancel                                              │
+  │                                                                                              │
+  └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+

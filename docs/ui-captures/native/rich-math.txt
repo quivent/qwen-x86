@@ -1,0 +1,30 @@
+
+   ▄▄▄▄▄▄  ▄▄     ▄▄ ▄▄▄▄▄▄▄ ▄▄▄    ▄▄   ┌───────────────────────────────────────────────────────┐
+  ██╔═══██╗██║    ██║██╔════╝████╗  ██║  │ >_ Qwen Code (native x86-64)                          │
+  ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                       │
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-rich-capture-c2dtywrw/workspace             │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘
+
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.
+
+  > UI_RICH_rich-math
+
+  ◆︎ Formula
+
+     LaTeX block · source: /copy latex 1
+     a/b + √(x)
+
+    The parameter is α.
+
+    UI_RICH_DONE
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ workspace · bench-model
+  ⏸ Ask permissions (shift + tab to cycle)
+
+
+
+

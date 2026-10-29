@@ -1,0 +1,30 @@
+    Preview line 41                                                                                │
+    Preview line 42                                                                                │
+    Preview line 43                                                                                │
+    Preview line 44                                                                                │
+    Preview line 45                                                                                │
+    Preview line 46                                                                                │
+    Preview line 47                                                                                │
+    Preview line 48                                                                                │
+    Preview line 49                                                                                │
+    Preview line 50                                                                                │
+    Preview line 51                                                                                │
+    Preview line 52                                                                                │
+    Preview line 53                                                                                │
+    Preview line 54                                                                                │
+    Preview line 55                                                                                │
+    Preview line 56                                                                                │
+    Preview line 57                                                                                │
+    Preview line 58                                                                                █
+    Preview line 59                                                                                █
+    SAVED_PREVIEW_END                                                                              █
+                                                                                                   █
+  > AFTER_PREVIEW_RESUME                                                                           █
+                                                                                                   █
+  ◆︎ PREVIEW_CHECK_DONE                                                                             █
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ workspace · bench-model
+  ⏸ Ask permissions (shift + tab to cycle)

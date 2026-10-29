@@ -1,0 +1,30 @@
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   █
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           █
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                              │
+  │ Settings                                                                                     │
+  │                                                                                              │
+  │ › 1. Model                                                                                   │
+  │      bench-model                                                                             │
+  │   2. Base URL                                                                                │
+  │      http://127.0.0.1:37835/v1                                                               │
+  │   3. Authentication                                                                          │
+  │      openai                                                                                  │
+  │                                                                                              │
+  │                                                                                              │
+  │                                                                                              │
+  │ Enter to select, ↑↓ to navigate, type to search, Esc to close                                │
+  │                                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,30 @@
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   │
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           │
+                                                                                                   █
+  > /agents manage                                                                                 █
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                                                                                              │
+  │ Agents                                                                                       │
+  │                                                                                              │
+  │ Built-in Agents                                                                              │
+  │                                                                                              │
+  │ ●︎ general-purpose (built-in)                                                                 │
+  │   Explore (built-in)                                                                         │
+  │   statusline-setup (built-in)                                                                │
+  │   review-agent (built-in)                                                                    │
+  │   claude-code (built-in)                                                                     │
+  │   codex (built-in)                                                                           │
+  │                                                                                              │
+  │ Using: 6 agents                                                                              │
+  │                                                                                              │
+  │ Enter to select, ↑↓ to navigate, Esc to close                                                │
+  │                                                                                              │
+  └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+

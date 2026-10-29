@@ -1,0 +1,30 @@
+    Line 062: terminal resize and scroll reference                                                 │
+    Line 063: terminal resize and scroll reference                                                 │
+    Line 064: terminal resize and scroll reference                                                 │
+    Line 065: terminal resize and scroll reference                                                 │
+    Line 066: terminal resize and scroll reference                                                 │
+    Line 067: terminal resize and scroll reference                                                 │
+    Line 068: terminal resize and scroll reference                                                 │
+    Line 069: terminal resize and scroll reference                                                 │
+    Line 070: terminal resize and scroll reference                                                 │
+    Line 071: terminal resize and scroll reference                                                 │
+    Line 072: terminal resize and scroll reference                                                 │
+    Line 073: terminal resize and scroll reference                                                 │
+    Line 074: terminal resize and scroll reference                                                 │
+    Line 075: terminal resize and scroll reference                                                 │
+    Line 076: terminal resize and scroll reference                                                 │
+    Line 077: terminal resize and scroll reference                                                 │
+    Line 078: terminal resize and scroll reference                                                 │
+    Line 079: terminal resize and scroll reference                                                 │
+    Line 080: terminal resize and scroll reference                                                 │
+    Line 081: terminal resize and scroll reference                                                 │
+    Line 082: terminal resize and scroll reference                                                 █
+    Line 083: terminal resize and scroll reference                                                 █
+    Line 084: terminal resize and scroll reference                                                 █
+    UI_CASE_LONG_DONE                                                                              █
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ workspace · bench-model
+  ⏸ Ask permissions (shift + tab to cycle)

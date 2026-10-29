@@ -1,0 +1,30 @@
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   █
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           █
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+  │                                                                                              │
+  │  Qwen Code   general   commands   custom-commands                                            │
+  │                                                                                              │
+  │  Qwen Code understands your codebase, makes edits with your permission, and executes         │
+  │  commands right from your terminal.                                                          │
+  │                                                                                              │
+  │  Shortcuts                                                                                   │
+  │  @                   Add files or folders a…   Ctrl+Q              Queue message for the …   │
+  │  !                   Run shell commands        Ctrl+J              Insert a newline          │
+  │  /                   Open command menu         Shift+Tab           Cycle approval modes      │
+  │  Tab                 Accept completion         Alt+←/→             Jump through words        │
+  │  Esc Esc             Clear input or cancel …   ↑/↓                 Cycle prompt history      │
+  │  Ctrl+L              Clear the screen                                                        │
+  │                                                                                              │
+  │  For more help: https://qwenlm.github.io/qwen-code-docs/                                     │
+  │                                                                                              │
+  │  Tab/Shift+Tab to switch tabs  ·  Esc to cancel                                              │
+  │                                                                                              │
+  └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+

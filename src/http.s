@@ -18,10 +18,15 @@ h_http: .ascii "http://"
 h_localhost: .asciz "localhost"
 h_loopback: .asciz "127.0.0.1"
 h_post: .asciz "POST "
+h_get: .asciz "GET "
+h_empty: .asciz ""
 h_request_head: .asciz " HTTP/1.1\r\nHost: "
 h_type_head: .asciz "\r\nContent-Type: "
 h_accept: .asciz "\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\nContent-Length: "
 h_auth: .asciz "\r\nAuthorization: Bearer "
+h_anthropic_auth: .asciz "\r\nx-api-key: "
+h_anthropic_version: .asciz "\r\nanthropic-version: 2023-06-01"
+h_gemini_auth: .asciz "\r\nx-goog-api-key: "
 h_end: .asciz "\r\n\r\n"
 h_key_cl: .asciz "content-length"
 h_key_te: .asciz "transfer-encoding"
@@ -101,6 +106,8 @@ h_input: .skip H_INPUT
 h_line: .skip H_LINE+1
 h_decimal: .skip 32
 h_trailer: .skip 8
+h_auth_mode: .skip 8
+h_method_get: .skip 8
 h_interim: .skip 8
 
 .section .text
@@ -110,6 +117,33 @@ h_interim: .skip 8
 
 http_status:
  mov rax,QWORD PTR [rip+h_status_code]
+ ret
+.global http_set_auth_mode
+# 0 OpenAI bearer/OAuth,1 Anthropic,2 Gemini. Credentials remain private.
+http_set_auth_mode:
+ cmp rdi,2
+ ja .Lauth_mode_bad
+ mov [rip+h_auth_mode],rdi
+ xor eax,eax
+ ret
+.Lauth_mode_bad:
+ mov rax,-22
+ ret
+.global http_get
+# URLZ,bodyCallback(ptr,len)->HTTPstatus/error. Public GET never borrows a key.
+http_get:
+ push rbx
+ mov rbx,[rip+h_auth_mode]
+ mov qword ptr [rip+h_auth_mode],0
+ mov qword ptr [rip+h_method_get],1
+ mov r8,rsi
+ lea rsi,[rip+h_empty]
+ mov rdx,rsi
+ xor ecx,ecx
+ call http_request
+ mov qword ptr [rip+h_method_get],0
+ mov [rip+h_auth_mode],rbx
+ pop rbx
  ret
 
 # CA policy changes always invalidate an idle authenticated connection.
@@ -790,6 +824,10 @@ h_build_request:
  push rbx
  mov QWORD PTR [rip+h_req_len],0
  lea rdi,[rip+h_post]
+ cmp qword ptr [rip+h_method_get],0
+ je .Lbuild_method_ready
+ lea rdi,[rip+h_get]
+.Lbuild_method_ready:
  call h_append
  test rax,rax
  js .Lbuild_done
@@ -827,6 +865,14 @@ h_build_request:
  cmp BYTE PTR [rip+h_key],0
  je .Lbuild_finish
  lea rdi,[rip+h_auth]
+ cmp qword ptr [rip+h_auth_mode],1
+ jne .Lbuild_not_anthropic_auth
+ lea rdi,[rip+h_anthropic_auth]
+.Lbuild_not_anthropic_auth:
+ cmp qword ptr [rip+h_auth_mode],2
+ jne .Lbuild_auth_ready
+ lea rdi,[rip+h_gemini_auth]
+.Lbuild_auth_ready:
  call h_append
  test rax,rax
  js .Lbuild_done
@@ -835,6 +881,13 @@ h_build_request:
  test rax,rax
  js .Lbuild_done
 .Lbuild_finish:
+ cmp qword ptr [rip+h_auth_mode],1
+ jne .Lbuild_version_ready
+ lea rdi,[rip+h_anthropic_version]
+ call h_append
+ test rax,rax
+ js .Lbuild_done
+.Lbuild_version_ready:
  lea rdi,[rip+h_end]
  call h_append
 .Lbuild_done:

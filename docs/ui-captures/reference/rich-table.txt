@@ -1,0 +1,30 @@
+  ██╔═══██╗██║    ██║██╔════╝████╗  ██║  │ >_ Qwen Code (v0.24.5)                                │ │
+  ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                       │ │
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ █
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-rich-capture-2b7jsfsw/workspace             │ █
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ █
+                                                                                                   █
+  Tips: You can resume a previous conversation by running qwen --continue or qwen --resume.        █
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.                              █
+  ●︎ Read context files: ~/.qwen/output-language.md                                                 █
+                                                                                                   █
+  > UI_RICH_rich-table                                                                             █
+                                                                                                   █
+  ◆︎ Files                                                                                          █
+                                                                                                   █
+                                                                                                   █
+    ┌────────────┬──────────────┐                                                                  █
+    │ File       │ Result       │                                                                  █
+    ├────────────┼──────────────┤                                                                  █
+    │ main.s     │ Built        │                                                                  █
+    ├────────────┼──────────────┤                                                                  █
+    │ λ-song.txt │ Unicode 世界 │                                                                  █
+    └────────────┴──────────────┘                                                                  █
+                                                                                                   █
+    UI_RICH_DONE                                                                                   █
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ workspace · bench-model
+  ⏸ Ask permissions (shift + tab to cycle)

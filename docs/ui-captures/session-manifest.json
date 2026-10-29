@@ -1,0 +1,20 @@
+{
+  "reference_version": "0.24.5",
+  "scope": "Sessions created by each actual client, read-only preview followed by cancel and real resume. No forged reference session files.",
+  "frames": [
+    "docs/ui-captures/reference/session-picker-populated.png",
+    "docs/ui-captures/reference/session-preview-scrolled.png",
+    "docs/ui-captures/reference/session-preview-top.png",
+    "docs/ui-captures/reference/session-resumed.png",
+    "docs/ui-captures/native/session-picker-populated.png",
+    "docs/ui-captures/native/session-preview-scrolled.png",
+    "docs/ui-captures/native/session-preview-top.png",
+    "docs/ui-captures/native/session-resumed.png"
+  ],
+  "native_preview_start_visible": true,
+  "native_cancel_preserved_history": true,
+  "native_enter_resumed_history": true,
+  "reference_preview_start_visible": false,
+  "reference_cancel_preserved_history": true,
+  "reference_enter_resumed_history": true
+}

@@ -25,6 +25,14 @@ no_meta: .ascii "@session:\n"
 .equ no_meta_len,.-no_meta
 disabled_meta: .ascii "@session:disabled\n"
 .equ disabled_meta_len,.-disabled_meta
+approval_preview: .asciz "Write approved file?"
+approval_tool: .asciz "write_file"
+approval_args: .ascii "{\"path\":\"approved.txt\",\"content\":\"safe\"}"
+.equ approval_args_len,.-approval_args
+approval_yes: .ascii "parent allowed\n"
+.equ approval_yes_len,.-approval_yes
+approval_no: .ascii "parent denied\n"
+.equ approval_no_len,.-approval_no
 report: .ascii "native report\n"
 .equ report_len,.-report
 resumed: .ascii "resumed native conversation\n"
@@ -40,6 +48,7 @@ pause_one: .quad 1,0
 pause_long: .quad 20,0
 .section .bss
 scratch: .skip 8
+type_pointer: .skip 8
 huge: .skip 8192
 nested_output: .skip 4096
 .section .text
@@ -50,6 +59,8 @@ agents_test_worker:
  push r14
  mov r12,rdi
  mov r13,rsi
+ mov r14,rcx
+ mov [rip+type_pointer],r8
  cmp BYTE PTR [r12],98
  je .Lbad
  cmp BYTE PTR [r12],110
@@ -80,6 +91,10 @@ agents_test_worker:
  mov edi,1
  mov eax,1
  syscall
+ cmp BYTE PTR [r12],116
+ je .Ltype_report
+ cmp BYTE PTR [r12],97
+ je .Lapproval
  cmp BYTE PTR [r12],115
  je .Lslow
  cmp BYTE PTR [r12],108
@@ -93,6 +108,38 @@ agents_test_worker:
  cmp BYTE PTR [r12],99
  je .Lclose
  jmp .Lreport
+.Ltype_report:
+ mov rsi,[rip+type_pointer]
+ xor edx,edx
+.Ltype_length:
+ cmp BYTE PTR [rsi+rdx],0
+ je .Ltype_write
+ inc edx
+ jmp .Ltype_length
+.Ltype_write:
+ mov eax,1
+ mov edi,1
+ syscall
+ jmp .Lexit
+.Lapproval:
+ lea rdi,[rip+approval_preview]
+ lea rsi,[rip+approval_tool]
+ lea rdx,[rip+approval_args]
+ mov ecx,OFFSET FLAT:approval_args_len
+ call agents_request_approval@PLT
+ lea rsi,[rip+approval_no]
+ mov edx,OFFSET FLAT:approval_no_len
+ test eax,eax
+ jz .Lapproval_report
+ cmp r14,1
+ jne .Lapproval_report
+ lea rsi,[rip+approval_yes]
+ mov edx,OFFSET FLAT:approval_yes_len
+.Lapproval_report:
+ mov eax,1
+ mov edi,1
+ syscall
+ jmp .Lexit
 .Lslow:
  lea rdi,[rip+pause_one]
  xor esi,esi
@@ -180,12 +227,19 @@ class AgentTest(unittest.TestCase):
         subprocess.run(["as", "--64", "-o", str(build / "worker.o"), str(fixture)], check=True)
         subprocess.run(["ld", "-shared", "-Bsymbolic", "-o", str(build / "agents.so"), *[str(build / (name + ".o")) for name in ("agents", "json", "runtime", "worker")]], check=True)
         cls.lib = ctypes.CDLL(str(build / "agents.so"))
+        # Closing a never-initialized manager must not interpret zeroed broker
+        # fields in unused rows as ownership of standard input FD0.
+        standard={fd:os.fstat(fd) for fd in (0,1,2)}
+        cls.lib.agents_close()
+        assert {fd:os.fstat(fd) for fd in (0,1,2)}==standard
         cls.lib.agents_init.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
         cls.lib.agents_init.restype = ctypes.c_long
         cls.lib.agents_handles.argtypes = [ctypes.c_char_p]
         cls.lib.agents_handles.restype = ctypes.c_long
         cls.lib.agents_execute.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t]
         cls.lib.agents_execute.restype = ctypes.c_long
+        cls.lib.agents_set_approval.argtypes=[ctypes.c_void_p]
+        cls.lib.agents_service_approvals.restype=ctypes.c_long
         cls.worker = ctypes.cast(cls.lib.agents_test_worker, ctypes.c_void_p)
         leader = build / "leader.s"
         leader.write_text(r'''
@@ -236,6 +290,7 @@ _start:
 
     def setUp(self):
         self.lib.agents_close()
+        self.lib.agents_set_approval(None)
         self.assertEqual(self.lib.agents_init(self.worker, 2), 0)
 
     def tearDown(self):
@@ -308,7 +363,7 @@ _start:
         self.assertLessEqual(len(complete["report"]), 65536)
 
     def test_readonly_mode_recursive_guard_and_bad_metadata(self):
-        self.assertIn("read-only", self.call("spawn_agent", {"name": "writer", "prompt": "fast", "mode": "write"}, raw=True))
+        self.assertIn("read-only", self.call("spawn_agent", {"name": "writer", "prompt": "fast", "mode": "unsafe-invalid"}, raw=True))
         recursive = self.spawn("recursive")
         complete = self.wait(recursive)
         self.assertEqual(complete["status"], "completed")
@@ -395,6 +450,47 @@ _start:
                 parent.stderr.close()
 
 
+
+
+    def test_inherited_worker_approval_runs_only_in_parent_with_exact_metadata(self):
+        calls=[]
+        callback_type=ctypes.CFUNCTYPE(ctypes.c_long,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_void_p,ctypes.c_size_t)
+        @callback_type
+        def approve(preview,tool,args,length):
+            calls.append((os.getpid(),preview,tool,json.loads(ctypes.string_at(args,length))))
+            # Nested activity ticks must not recursively open another approval.
+            self.assertEqual(self.lib.agents_service_approvals(),0)
+            return 1
+        self.lib.agents_set_approval(approve)
+        job=self.call('spawn_agent',{'name':'writer','prompt':'approve','mode':'inherit'})
+        result=self.wait(job)
+        self.assertEqual(result['report'],'parent allowed\n');self.assertEqual(calls,[(os.getpid(),b'Write approved file?',b'write_file',{'path':'approved.txt','content':'safe'})])
+        # Saved worker policy survives followups.
+        result=self.call('send_agent_message',{'id':job['id'],'message':'approve followup'});self.assertEqual(self.wait(result)['report'],'parent allowed\n');self.assertEqual(len(calls),2)
+    def test_readonly_and_missing_broker_deny_worker_mutation_requests(self):
+        readonly=self.spawn('approve');self.assertEqual(self.wait(readonly)['report'],'parent denied\n')
+        inherited=self.call('spawn_agent',{'name':'writer','prompt':'approve','mode':'write'});self.assertEqual(self.wait(inherited)['report'],'parent denied\n')
+    def test_parallel_inherited_requests_are_serialized_and_denials_reach_child(self):
+        calls=[];callback_type=ctypes.CFUNCTYPE(ctypes.c_long,ctypes.c_char_p,ctypes.c_char_p,ctypes.c_void_p,ctypes.c_size_t)
+        @callback_type
+        def deny(preview,tool,args,length):calls.append(tool);return 0
+        self.lib.agents_set_approval(deny)
+        jobs=[self.call('spawn_agent',{'name':str(i),'prompt':'approve','mode':'inherit'}) for i in range(2)]
+        for job in jobs:self.assertEqual(self.wait(job)['report'],'parent denied\n')
+        self.assertEqual(calls,[b'write_file',b'write_file'])
+    def test_pending_worker_approval_cancel_close_have_no_descriptor_leaks(self):
+        before=len(os.listdir('/proc/self/fd'))
+        job=self.call('spawn_agent',{'name':'writer','prompt':'approve','mode':'inherit'})
+        time.sleep(.03)
+        # close kills/reaps even if no activity service consumed the request.
+        self.lib.agents_close();self.assertEqual(len(os.listdir('/proc/self/fd')),before)
+
+    def test_named_type_is_passed_as_fifth_argument_and_preserved_on_followup(self):
+        job=self.call('spawn_agent',{'name':'UI name','prompt':'type','agent_type':'general-purpose'})
+        self.assertEqual(self.wait(job)['report'],'general-purpose')
+        follow=self.call('send_agent_message',{'id':job['id'],'message':'type again'});self.assertEqual(self.wait(follow)['report'],'general-purpose')
+        explore=self.call('spawn_agent',{'name':'reader','prompt':'approve','subagent_type':'Explore','mode':'inherit'})
+        self.assertEqual(self.wait(explore)['report'],'parent denied\n')
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,3 @@
+# Exact terminal viewports retain their empty final rows as evidence.
+docs/ui-captures/**/*.txt whitespace=-blank-at-eof
+docs/ui-captures/**/*.ansi whitespace=-blank-at-eof

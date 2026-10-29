@@ -1,0 +1,20 @@
+qwen-x86
+
+UI artwork, presentation behavior, theme palettes, LaTeX substitution tables,
+Mermaid diagrams and help presentation are adapted from Qwen Code v0.24.5,
+licensed under the Apache License, Version 2.0. Upstream copyright notices
+belong to their respective authors, including Google LLC and the Qwen Team.
+
+Unicode property ranges are generated from Unicode 17 properties exposed by
+the development-only regex package. Unicode data is subject to Unicode License
+v3. Its copyright and permission notice is included in LICENSE-UNICODE.
+Original notice: https://www.unicode.org/license.txt
+
+Includes Unicode/ICU 78.2 CJK, Thai, Lao, Myanmar and Khmer dictionary data
+and Unicode 17 character/normalization data, Copyright © 1991–2026 Unicode,
+Inc. Distributed under Unicode License v3; see
+docs/third-party/unicode-license.txt. Runtime segmentation is native assembly.
+
+Builtin agent prompts/metadata and provider-preset metadata are adapted from
+Qwen Code 0.24.5 under Apache License 2.0. Generated data and provenance are
+kept in data/agents and docs/third-party; generators are development tools.

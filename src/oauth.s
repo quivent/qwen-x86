@@ -1929,3 +1929,125 @@ oauth_login:
  pop rbx
  ret
 .section .note.GNU-stack,"",@progbits
+
+.section .text
+.globl oauth_account_status,oauth_logout
+# out32={source0none1native2Go3Qwen,readyBoolean,expiryUnixMs,resourceURLz}.
+# Metadata only. Never returns token bytes or calls network.
+oauth_account_status:
+ test rdi,rdi
+ jz .Lo_status_invalid
+ push r12
+ mov r12,rdi
+ mov rax,[rip+.Lo_source]
+ mov [r12],rax
+ mov rax,[rip+.Lo_expiry_ms]
+ mov [r12+16],rax
+ lea rax,[rip+.Lo_resource_url]
+ mov [r12+24],rax
+ call .Lo_credentials_ready
+ test rax,rax
+ sete al
+ movzx eax,al
+ mov [r12+8],rax
+ pop r12
+ xor eax,eax
+ ret
+.Lo_status_invalid:
+ mov rax,-22
+ ret
+# homeZ ->0/-error. Delete only native oauth.json under stable refresh lock;
+# leave Go/Qwen credential caches untouched. No remote revocation request.
+oauth_logout:
+ push rbx
+ push r12
+ push r13
+ push r14
+ sub rsp,8
+ mov r14,-22
+ test rdi,rdi
+ jz .Lo_logout_done
+ cmp byte ptr [rdi],47
+ jne .Lo_logout_done
+ mov rsi,rdi
+ lea rdi,[rip+.Lo_home]
+ mov edx,4096
+ call .Lo_copyz
+ test rax,rax
+ js .Lo_logout_done
+ xor edi,edi
+ call .Lo_open_native
+ cmp rax,-1
+ je .Lo_logout_clear_success
+ test rax,rax
+ js .Lo_logout_failed
+ mov r12,rax
+ mov rdi,rax
+ call .Lo_lock_dir
+ test rax,rax
+ js .Lo_logout_close_failure
+ mov r13,rax
+ mov rdi,r12
+ lea rsi,[rip+.Lo_file]
+ mov edx,1
+ call .Lo_read_cache
+ cmp rax,-1
+ je .Lo_logout_unlock_success
+ test rax,rax
+ js .Lo_logout_unlock_failure
+ mov eax,263
+ mov rdi,r12
+ lea rsi,[rip+.Lo_file]
+ xor edx,edx
+ syscall
+ cmp rax,-2
+ je .Lo_logout_unlock_success
+ test rax,rax
+ js .Lo_logout_unlock_failure
+ mov eax,74
+ mov rdi,r12
+ syscall
+ test rax,rax
+ js .Lo_logout_unlock_failure
+.Lo_logout_unlock_success:
+ mov rdi,r13
+ call .Lo_unlock_close
+ mov eax,3
+ mov rdi,r12
+ syscall
+.Lo_logout_clear_success:
+ xor r14d,r14d
+ jmp .Lo_logout_clear
+.Lo_logout_unlock_failure:
+ mov rdi,r13
+ call .Lo_unlock_close
+.Lo_logout_close_failure:
+ mov eax,3
+ mov rdi,r12
+ syscall
+.Lo_logout_failed:
+ mov r14,-2
+.Lo_logout_clear:
+ # Clear all process-local credential copies regardless of filesystem outcome.
+ xor eax,eax
+ lea rdi,[rip+.Lo_token]
+ mov ecx,O_TOKEN_CAP*2+2049+16
+ rep stosb
+ lea rdi,[rip+.Lo_new_token]
+ mov ecx,O_TOKEN_CAP*2+2049
+ rep stosb
+ lea rdi,[rip+.Lo_save]
+ mov ecx,65536/8
+ rep stosq
+ call .Lo_clear_ephemeral
+ lea rax,[rip+.Lo_need_login]
+ mov [rip+.Lo_error],rax
+.Lo_logout_done:
+ mov rax,r14
+ add rsp,8
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.section .note.GNU-stack,"",@progbits

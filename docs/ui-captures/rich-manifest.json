@@ -1,0 +1,9 @@
+{
+  "reference_version": "0.24.5",
+  "scope": "Same complete response supplied to actual reference/native terminal renderer; images are evidence, not passing parity assertions.",
+  "frames": [
+    "docs/ui-captures/native/rich-table.png",
+    "docs/ui-captures/native/rich-math.png",
+    "docs/ui-captures/native/rich-mermaid.png"
+  ]
+}
