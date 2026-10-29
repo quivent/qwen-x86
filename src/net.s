@@ -2,7 +2,15 @@
 .ifndef DNS_PORT
 .equ DNS_PORT,53
 .endif
+.data
+.p2align 3
+net_ui_hook: .quad 0
 .text
+.global net_set_ui_hook
+net_set_ui_hook:
+    mov [rip+net_ui_hook],rdi
+    xor eax,eax
+    ret
 .global net_connect,net_read,net_write,net_close,net_set_interactive,net_cancelled
 # Native Linux socket membrane. DNS data and per-process buffers are not shared.
 net_set_interactive:
@@ -18,6 +26,15 @@ net_check_cancel:
     jne .L_check_cancelled
     cmp qword ptr [rip+net_interactive],0
     je .L_check_cancel_ok
+    mov rax,[rip+net_ui_hook]
+    test rax,rax
+    jz .L_check_legacy_input
+    call rax
+    test rax,rax
+    jns .L_check_cancel_ok
+    mov qword ptr [rip+net_cancelled],1
+    jmp .L_check_cancelled
+.L_check_legacy_input:
     mov qword ptr [rsp],0
     mov word ptr [rsp+4],1
     mov eax,7
@@ -55,12 +72,41 @@ net_close:
 net_wait:
     push rbx
     push r12
-    sub rsp,24
+    push r13
+    push r14
+    sub rsp,72
     mov ebx,edi
     mov r12d,esi
+    call .L_net_clock_ms
+    test rax,rax
+    js .L_wait_done
+    lea r14,[rax+30000]
 .L_wait_again:
     cmp qword ptr [rip+net_cancelled],0
     jne .L_wait_cancel
+    cmp qword ptr [rip+net_interactive],0
+    je .L_wait_prepare
+    mov rax,[rip+net_ui_hook]
+    test rax,rax
+    jz .L_wait_prepare
+    call rax
+    test rax,rax
+    js .L_wait_mark_cancel
+.L_wait_prepare:
+    call .L_net_clock_ms
+    test rax,rax
+    js .L_wait_done
+    mov r13,r14
+    sub r13,rax
+    jle .L_wait_timeout
+    cmp qword ptr [rip+net_interactive],0
+    je .L_wait_timeout_ready
+    cmp qword ptr [rip+net_ui_hook],0
+    je .L_wait_timeout_ready
+    cmp r13,50
+    jbe .L_wait_timeout_ready
+    mov r13d,50
+.L_wait_timeout_ready:
     mov [rsp],ebx
     mov [rsp+4],r12w
     mov word ptr [rsp+6],0
@@ -75,15 +121,17 @@ net_wait:
     mov eax,7
     mov rdi,rsp
     mov esi,2
-    mov edx,30000
+    mov edx,r13d
     syscall
     cmp rax,-4
     je .L_wait_again
     test rax,rax
     js .L_wait_done
-    jz .L_wait_timeout
+    jz .L_wait_again
     test word ptr [rsp+14],1
     jz .L_wait_socket
+    cmp qword ptr [rip+net_ui_hook],0
+    jne .L_wait_again
     xor eax,eax
     xor edi,edi
     lea rsi,[rsp+16]
@@ -93,6 +141,7 @@ net_wait:
     jne .L_wait_socket
     cmp byte ptr [rsp+16],3
     jne .L_wait_socket
+.L_wait_mark_cancel:
     mov qword ptr [rip+net_cancelled],1
     jmp .L_wait_cancel
 .L_wait_socket:
@@ -106,9 +155,31 @@ net_wait:
 .L_wait_cancel:
     mov rax,-125
 .L_wait_done:
-    add rsp,24
+    add rsp,72
+    pop r14
+    pop r13
     pop r12
     pop rbx
+    ret
+# Monotonic milliseconds; private stack state preserves nested UI callbacks.
+.L_net_clock_ms:
+    sub rsp,24
+    mov eax,228
+    mov edi,1
+    mov rsi,rsp
+    syscall
+    test rax,rax
+    js .L_net_clock_return
+    mov rax,[rsp]
+    imul rax,rax,1000
+    mov r8,rax
+    mov rax,[rsp+8]
+    xor edx,edx
+    mov ecx,1000000
+    div rcx
+    add rax,r8
+.L_net_clock_return:
+    add rsp,24
     ret
 # net_read(fd,dst,cap), nonblocking descriptors and partial receive.
 net_read:

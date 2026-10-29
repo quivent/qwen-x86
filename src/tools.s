@@ -13,6 +13,7 @@ t_allow_all: .quad 0
 t_environment: .quad 0
 t_cancel_callback: .quad 0
 t_pidfd: .quad -1
+t_error: .quad 0
 
 .section .rodata
 t_name_read: .asciz "read_file"
@@ -147,6 +148,7 @@ tools_set_cancel:
 
 # Dispatch immutable tool names to their bound native handler routes.
 tool_execute:
+ mov QWORD PTR [rip+t_error],0
  push rbp
  mov rbp,rsp
  push rbx
@@ -208,6 +210,7 @@ tool_execute:
  call t_message
  jmp .Lexecute_done
 .Lexecute_internal:
+ mov QWORD PTR [rip+t_error],1
  mov rax,-1
 .Lexecute_done:
  add rsp,8
@@ -262,7 +265,16 @@ t_return:
  mov BYTE PTR [rdi],0
  ret
 
+# Error state comes from known internal status messages, never raw file content.
+.global tools_last_error
+tools_last_error:
+ mov rax,QWORD PTR [rip+t_error]
+ ret
 t_message:
+ cmp DWORD PTR [rdi],0x6f727245
+ jne .Lmessage_length
+ mov QWORD PTR [rip+t_error],1
+.Lmessage_length:
  push rdi
  call t_strlen
  pop rdi
@@ -1227,14 +1239,17 @@ t_shell:
  jne .Lshell_exit_suffix
  jmp .Lshell_truncation
 .Lshell_cancel_suffix:
+ mov QWORD PTR [rip+t_error],1
  lea rsi,[rip+m_cancelled]
  call t_shell_suffix
  jmp .Lshell_truncation
 .Lshell_timeout_suffix:
+ mov QWORD PTR [rip+t_error],1
  lea rsi,[rip+m_timeout]
  call t_shell_suffix
  jmp .Lshell_truncation
 .Lshell_exit_suffix:
+ mov QWORD PTR [rip+t_error],1
  lea rsi,[rip+m_shell_exit]
  call t_shell_suffix
 .Lshell_truncation:

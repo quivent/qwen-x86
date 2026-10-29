@@ -1,0 +1,30 @@
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-76ypknap/workspace           │ │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   █
+  Tips: You can resume a previous conversation by running qwen --continue or qwen --resume.        █
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.                              █
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                              │
+  │ Select Model                                                                                 │
+  │                                                                                              │
+  │ › 1. [openai] bench-model (Runtime)                                                          │
+  │      Runtime model                                                                           │
+  │                                                                                              │
+  │ ──────────────────────────────────────────────────────────────────────────────────────────── │
+  │ Modality:       text-only                                                                    │
+  │ Context Window: (unknown)                                                                    │
+  │ Base URL:       (default)                                                                    │
+  │ API Key:        (not set)                                                                    │
+  │                                                                                              │
+  │ Enter to select, ↑↓ to navigate, Esc to close                                                │
+  │                                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,108 @@
+{
+  "reference_version": "0.24.5",
+  "scope": "Real interactive static assembly and default Qwen Ink renderer through tmux,100x30,controlled HTTP model; no real inference. Both clients retain default session saving. Workload is not full UI parity.",
+  "method": {
+    "runs": 3,
+    "verification": "A subsequent model request must contain the entire exact streamed assistant text; that verification request is outside the timed interval.",
+    "content_utf8_bytes": 56033,
+    "content_chunks": 399,
+    "pacing_ms": 2,
+    "screen_poll_ms": 100,
+    "pass": "memory (timings excluded from comparisons)",
+    "memory_sample_ms": 10,
+    "startup": "Includes tmux launch and ready-screen polling, not bare executable startup.",
+    "cpu": "Sum /proc CPU deltas over live process tree after ready; 10ms scheduler quantization on this host, excludes children that exit before final sample.",
+    "limits": [
+      "UI completion latency includes controlled pacing and up to100ms terminal polling delay.",
+      "Sampling and tmux add overhead.",
+      "Clients differ in available features and session bookkeeping implementations.",
+      "Captures/interaction tests, not benchmark numbers, determine UI correctness."
+    ]
+  },
+  "raw": {
+    "native": [
+      {
+        "launch_to_ready_ms": 39.546207000967115,
+        "response_first_byte_to_end_visible_ms": 979.8652839963324,
+        "cpu_after_ready_ms": 280.0,
+        "sampled_peak_tree_rss_kib": 1020,
+        "sampled_peak_tree_pss_kib": 1020,
+        "requests": 1,
+        "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 46.347108989721164,
+        "response_first_byte_to_end_visible_ms": 982.1254610142205,
+        "cpu_after_ready_ms": 180.0,
+        "sampled_peak_tree_rss_kib": 1016,
+        "sampled_peak_tree_pss_kib": 1016,
+        "requests": 1,
+        "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 58.978357003070414,
+        "response_first_byte_to_end_visible_ms": 974.7644140152261,
+        "cpu_after_ready_ms": 200.0,
+        "sampled_peak_tree_rss_kib": 1020,
+        "sampled_peak_tree_pss_kib": 1020,
+        "requests": 1,
+        "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+        "full_transcript_verified": true
+      }
+    ],
+    "reference": [
+      {
+        "launch_to_ready_ms": 6046.924075984862,
+        "response_first_byte_to_end_visible_ms": 2300.7466870185453,
+        "cpu_after_ready_ms": 4610.0,
+        "sampled_peak_tree_rss_kib": 560208,
+        "sampled_peak_tree_pss_kib": 460683,
+        "requests": 1,
+        "binary_sha256": null,
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 5622.756377997575,
+        "response_first_byte_to_end_visible_ms": 1820.9275260160211,
+        "cpu_after_ready_ms": 4380.0,
+        "sampled_peak_tree_rss_kib": 561092,
+        "sampled_peak_tree_pss_kib": 461557,
+        "requests": 1,
+        "binary_sha256": null,
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 5096.045726997545,
+        "response_first_byte_to_end_visible_ms": 1832.2774909902364,
+        "cpu_after_ready_ms": 4430.0,
+        "sampled_peak_tree_rss_kib": 558140,
+        "sampled_peak_tree_pss_kib": 458569,
+        "requests": 1,
+        "binary_sha256": null,
+        "full_transcript_verified": true
+      }
+    ]
+  },
+  "median": {
+    "native": {
+      "launch_to_ready_ms": 46.347108989721164,
+      "response_first_byte_to_end_visible_ms": 979.8652839963324,
+      "cpu_after_ready_ms": 200.0,
+      "sampled_peak_tree_rss_kib": 1020,
+      "sampled_peak_tree_pss_kib": 1020,
+      "requests": 1,
+      "full_transcript_verified": true
+    },
+    "reference": {
+      "launch_to_ready_ms": 5622.756377997575,
+      "response_first_byte_to_end_visible_ms": 1832.2774909902364,
+      "cpu_after_ready_ms": 4430.0,
+      "sampled_peak_tree_rss_kib": 560208,
+      "sampled_peak_tree_pss_kib": 460683,
+      "requests": 1,
+      "full_transcript_verified": true
+    }
+  }
+}

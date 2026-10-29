@@ -1,0 +1,30 @@
+  ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                       │ │
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-ui-capture-xl6di__f/workspace               │ │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ █
+                                                                                                   █
+  Tips: Type / to open the command popup; Tab autocompletes slash commands and saved prompts.      █
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.                              █
+  ●︎ Read context files: ~/.qwen/output-language.md                                                 █
+                                                                                                   █
+  > UI_CASE_MARKDOWN                                                                               █
+                                                                                                   █
+  ◆︎ Result                                                                                         █
+                                                                                                   █
+    UI_CASE_MARKDOWN_DONE                                                                          █
+                                                                                                   █
+    This is bold, italic, and inline code.                                                         █
+                                                                                                   █
+     1 print("Hello, world")                                                                       █
+                                                                                                   █
+     - First item                                                                                  █
+     - Second item                                                                                 █
+                                                                                                   █
+     │ A quoted line                                                                               █
+                                                                                                   █
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ workspace · bench-model
+  ⏸ Ask permissions (shift + tab to cycle)

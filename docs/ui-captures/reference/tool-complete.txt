@@ -1,0 +1,30 @@
+  ●︎ Read context files: ~/.qwen/output-language.md                                                 │
+                                                                                                   │
+  > UI_CASE_MARKDOWN                                                                               │
+                                                                                                   │
+  ◆︎ Result                                                                                         │
+                                                                                                   │
+    UI_CASE_MARKDOWN_DONE                                                                          │
+                                                                                                   █
+    This is bold, italic, and inline code.                                                         █
+                                                                                                   █
+     1 print("Hello, world")                                                                       █
+                                                                                                   █
+     - First item                                                                                  █
+     - Second item                                                                                 █
+                                                                                                   █
+     │ A quoted line                                                                               █
+                                                                                                   █
+                                                                                                   █
+  > UI_CASE_TOOL                                                                                   █
+  ✓ WriteFile Writing to capture.txt                                                               █
+    1 A visible edit preview                                                                       █
+                                                                                                   █
+  ◆︎ UI_CASE_TOOL_DONE                                                                              █
+                                                                                                   █
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+>   Type your message or @path/to/file
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  ➜ workspace · bench-model
+  ⏸ Ask permissions (shift + tab to cycle)

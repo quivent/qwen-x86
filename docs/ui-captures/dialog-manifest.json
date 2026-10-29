@@ -1,0 +1,12 @@
+{
+  "reference_version": "0.24.5",
+  "scope": "Command-dialog comparison, isolated profiles; no fabricated sessions/plugins",
+  "frames": [
+    "docs/ui-captures/native/dialog-model.png",
+    "docs/ui-captures/native/dialog-theme.png",
+    "docs/ui-captures/native/dialog-resume.png",
+    "docs/ui-captures/native/dialog-extensions.png",
+    "docs/ui-captures/native/dialog-agents-manage.png",
+    "docs/ui-captures/native/dialog-help.png"
+  ]
+}

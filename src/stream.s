@@ -6,7 +6,7 @@
 .equ CALL_ARGS,208
 .equ CALL_ARGLEN,32976
 .text
-.global stream_begin,stream_feed,stream_finish,stream_result,stream_calls
+.global stream_begin,stream_feed,stream_finish,stream_result,stream_calls,stream_usage,stream_usage_snapshot
 # Single process-owned SSE state; parallel agents use private forked pages.
 stream_begin:
     mov [rip+s_callback],rdi
@@ -17,6 +17,10 @@ stream_begin:
     mov qword ptr [rip+s_done],0
     mov qword ptr [rip+s_finished],0
     mov qword ptr [rip+s_error],0
+    mov qword ptr [rip+s_usage_prompt],0
+    mov qword ptr [rip+s_usage_completion],0
+    mov qword ptr [rip+s_usage_total],0
+    mov qword ptr [rip+s_usage_present],0
     lea rdi,[rip+s_call_table]
     mov ecx,8
 .L_stream_reset_call:
@@ -38,6 +42,24 @@ stream_result:
 stream_calls:
     lea rax,[rip+s_call_table]
     mov rdx,[rip+s_call_count]
+    ret
+# Real provider-reported counters only; absent/partial/invalid metadata is not
+# synthesized. Registers mirror the compact native stream-result interfaces.
+stream_usage:
+    mov rax,[rip+s_usage_prompt]
+    mov rdx,[rip+s_usage_completion]
+    mov rcx,[rip+s_usage_total]
+    mov r8,[rip+s_usage_present]
+    ret
+stream_usage_snapshot:
+    mov rax,[rip+s_usage_prompt]
+    mov [rdi],rax
+    mov rax,[rip+s_usage_completion]
+    mov [rdi+8],rax
+    mov rax,[rip+s_usage_total]
+    mov [rdi+16],rax
+    mov rax,[rip+s_usage_present]
+    mov [rdi+24],rax
     ret
 stream_feed:
     push rbx
@@ -230,6 +252,7 @@ stream_finish:
     call json_parse
     test rax,rax
     js .L_event_bad
+    call .L_stream_extract_usage
     xor edi,edi
     lea rsi,[rip+k_choices]
     call .L_stream_find
@@ -415,10 +438,107 @@ stream_finish:
     pop r12
     pop rbx
     ret
+# Metadata extraction is transactional. A malformed optional usage field never
+# corrupts an earlier valid report or turns otherwise valid content into error.
+.L_stream_extract_usage:
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    xor edi,edi
+    lea rsi,[rip+k_usage]
+    call .L_stream_find
+    test rax,rax
+    js .L_usage_absent
+    mov r12,rax
+    shl rax,5
+    lea rdx,[rip+s_tokens]
+    cmp qword ptr [rdx+rax+T_TYPE],JT_OBJECT
+    jne .L_usage_absent
+    mov rdi,r12
+    lea rsi,[rip+k_prompt_tokens]
+    call .L_stream_find
+    test rax,rax
+    js .L_usage_absent
+    call .L_usage_integer
+    test rdx,rdx
+    jz .L_usage_absent
+    mov r13,rax
+    mov rdi,r12
+    lea rsi,[rip+k_completion_tokens]
+    call .L_stream_find
+    test rax,rax
+    js .L_usage_absent
+    call .L_usage_integer
+    test rdx,rdx
+    jz .L_usage_absent
+    mov r14,rax
+    mov rdi,r12
+    lea rsi,[rip+k_total_tokens]
+    call .L_stream_find
+    test rax,rax
+    js .L_usage_absent
+    call .L_usage_integer
+    test rdx,rdx
+    jz .L_usage_absent
+    mov [rip+s_usage_prompt],r13
+    mov [rip+s_usage_completion],r14
+    mov [rip+s_usage_total],rax
+    mov qword ptr [rip+s_usage_present],1
+    mov eax,1
+    jmp .L_usage_return
+.L_usage_absent:
+    xor eax,eax
+.L_usage_return:
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbx
+    ret
+# Token index RAX -> unsigned decimal integer<=INT64_MAX inRAX, validityRDX.
+# Reject negative/fraction/exponent/string/overflow counters rather than guessing.
+.L_usage_integer:
+    shl rax,5
+    lea rdx,[rip+s_tokens]
+    add rdx,rax
+    cmp qword ptr [rdx+T_TYPE],JT_NUMBER
+    jne .L_usage_integer_bad
+    mov rcx,[rdx+T_LEN]
+    test rcx,rcx
+    jz .L_usage_integer_bad
+    cmp rcx,19
+    ja .L_usage_integer_bad
+    lea rsi,[rip+s_event]
+    add rsi,[rdx+T_START]
+    xor eax,eax
+.L_usage_integer_digit:
+    movzx edi,byte ptr [rsi]
+    sub edi,48
+    cmp edi,9
+    ja .L_usage_integer_bad
+    imul rax,rax,10
+    jo .L_usage_integer_bad
+    add rax,rdi
+    jo .L_usage_integer_bad
+    inc rsi
+    dec rcx
+    jnz .L_usage_integer_digit
+    mov edx,1
+    ret
+.L_usage_integer_bad:
+    xor eax,eax
+    xor edx,edx
+    ret
 .section .rodata
 finish_stop: .asciz "stop"
 finish_tool_calls: .asciz "tool_calls"
 k_choices: .asciz "choices"
+k_usage: .asciz "usage"
+k_prompt_tokens: .asciz "prompt_tokens"
+k_completion_tokens: .asciz "completion_tokens"
+k_total_tokens: .asciz "total_tokens"
 k_finish: .asciz "finish_reason"
 k_delta: .asciz "delta"
 k_content: .asciz "content"
@@ -439,6 +559,10 @@ s_call_count: .zero 8
 s_done: .zero 8
 s_finished: .zero 8
 s_error: .zero 8
+s_usage_prompt: .zero 8
+s_usage_completion: .zero 8
+s_usage_total: .zero 8
+s_usage_present: .zero 8
 .p2align 4
 s_line: .zero 65536
 s_event: .zero 65536

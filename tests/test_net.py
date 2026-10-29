@@ -144,6 +144,7 @@ class NetAssembly(unittest.TestCase):
         cls.lib.net_check_cancel.argtypes = []
         cls.lib.net_check_cancel.restype = ctypes.c_int64
         cls.lib.net_set_interactive.argtypes = [ctypes.c_uint64]
+        cls.lib.net_set_ui_hook.argtypes = [ctypes.c_void_p]
         cls.cancelled = ctypes.c_uint64.in_dll(cls.lib, "net_cancelled")
         cls.lib.net_set_interactive(0)
 
@@ -154,10 +155,65 @@ class NetAssembly(unittest.TestCase):
 
     def setUp(self):
         self.cancelled.value = 0
+        self.lib.net_set_interactive(0)
+        self.lib.net_set_ui_hook(None)
         self.resolver.mode = "normal"
         self.resolver.requests.clear()
         self.hosts.write_text("")
         self.resolv.write_text("# Local test resolver\nnameserver 127.0.0.1\n")
+
+    def test_ui_hook_ticks_while_waiting_without_stealing_input(self):
+        left, right = socket.socketpair()
+        left.setblocking(False)
+        incoming, writer = os.pipe()
+        saved = os.dup(0)
+        calls = []
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_int64)
+        @callback_type
+        def callback():
+            calls.append(time.monotonic())
+            return -125 if len(calls) == 3 else 0
+        try:
+            os.dup2(incoming, 0)
+            self.lib.net_set_interactive(1)
+            self.lib.net_set_ui_hook(ctypes.cast(callback, ctypes.c_void_p))
+            output = ctypes.create_string_buffer(16)
+            start = time.monotonic()
+            self.assertEqual(self.lib.net_read(left.fileno(), output, 16), -125)
+            self.assertLess(time.monotonic() - start, 1)
+            self.assertEqual(len(calls), 3)
+            self.assertEqual(self.cancelled.value, 1)
+            self.assertEqual(self.lib.net_check_cancel(), -125)
+            self.assertEqual(len(calls), 3)
+        finally:
+            self.lib.net_set_ui_hook(None)
+            self.lib.net_set_interactive(0)
+            os.dup2(saved, 0)
+            for descriptor in [incoming, writer, saved]: os.close(descriptor)
+            left.close(); right.close()
+
+    def test_headless_connection_never_calls_inherited_ui_hook(self):
+        left, right = socket.socketpair(); left.setblocking(False)
+        calls = []
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_int64)
+        @callback_type
+        def callback():
+            calls.append(True)
+            return -125
+        def writer():
+            time.sleep(.03)
+            right.sendall(b"x")
+        task = threading.Thread(target=writer); task.start()
+        try:
+            self.lib.net_set_interactive(0)
+            self.lib.net_set_ui_hook(ctypes.cast(callback, ctypes.c_void_p))
+            output = ctypes.create_string_buffer(1)
+            self.assertEqual(self.lib.net_read(left.fileno(), output, 1), 1)
+            self.assertEqual(output.raw, b"x")
+            self.assertEqual(calls, [])
+        finally:
+            self.lib.net_set_ui_hook(None)
+            task.join(1); left.close(); right.close()
 
     def test_connected_socket_disables_nagle_for_interactive_requests(self):
         peer = TCPPeer()

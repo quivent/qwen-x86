@@ -1,0 +1,30 @@
+                                                                                                   │
+  Tips: You can resume a previous conversation by running qwen --continue or qwen --resume.        │
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.                              │
+                                                                                                   █
+  > /extensions                                                                                    █
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+  │  Installed    Discover    Sources   (Tab / ←→ to switch)                                     │
+  │                                                                                              │
+  │ No plugins or MCP servers installed.                                                         │
+  │ Use the Discover tab to find and install plugins.                                            │
+  │                                                                                              │
+  │ ↑↓ navigate · Space enable/disable · f favorite · Enter details · Esc close                  │
+  └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

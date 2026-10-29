@@ -1,0 +1,104 @@
+{
+  "reference_version": "0.24.5",
+  "scope": "Real interactive static assembly and default Qwen Ink renderer through tmux,100x30,controlled HTTP model; no real inference. Both clients retain default session saving. Workload is not full UI parity.",
+  "method": {
+    "runs": 3,
+    "verification": "A subsequent model request must contain the entire exact streamed assistant text; that verification request is outside the timed interval.",
+    "content_utf8_bytes": 56033,
+    "content_chunks": 399,
+    "pacing_ms": 2,
+    "screen_poll_ms": 100,
+    "pass": "timing (memory sampler disabled)",
+    "memory_sample_ms": null,
+    "startup": "Includes tmux launch and ready-screen polling, not bare executable startup.",
+    "cpu": "Sum /proc CPU deltas over live process tree after ready; 10ms scheduler quantization on this host, excludes children that exit before final sample.",
+    "limits": [
+      "UI completion latency includes controlled pacing and up to100ms terminal polling delay.",
+      "Sampling and tmux add overhead.",
+      "Clients differ in available features and session bookkeeping implementations.",
+      "Captures/interaction tests, not benchmark numbers, determine UI correctness."
+    ]
+  },
+  "raw": {
+    "native": [
+      {
+        "launch_to_ready_ms": 43.65968899219297,
+        "response_first_byte_to_end_visible_ms": 991.7880959983449,
+        "cpu_after_ready_ms": 230.0,
+        "sampled_peak_tree_rss_kib": null,
+        "sampled_peak_tree_pss_kib": null,
+        "requests": 1,
+        "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 65.70306100184098,
+        "response_first_byte_to_end_visible_ms": 1089.7423160204198,
+        "cpu_after_ready_ms": 300.0,
+        "sampled_peak_tree_rss_kib": null,
+        "sampled_peak_tree_pss_kib": null,
+        "requests": 1,
+        "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 57.37376800971106,
+        "response_first_byte_to_end_visible_ms": 989.11523600691,
+        "cpu_after_ready_ms": 270.0,
+        "sampled_peak_tree_rss_kib": null,
+        "sampled_peak_tree_pss_kib": null,
+        "requests": 1,
+        "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+        "full_transcript_verified": true
+      }
+    ],
+    "reference": [
+      {
+        "launch_to_ready_ms": 5118.045999988681,
+        "response_first_byte_to_end_visible_ms": 1641.194462979911,
+        "cpu_after_ready_ms": 4490.0,
+        "sampled_peak_tree_rss_kib": null,
+        "sampled_peak_tree_pss_kib": null,
+        "requests": 1,
+        "binary_sha256": null,
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 5256.142653001007,
+        "response_first_byte_to_end_visible_ms": 1659.4278280099388,
+        "cpu_after_ready_ms": 4770.0,
+        "sampled_peak_tree_rss_kib": null,
+        "sampled_peak_tree_pss_kib": null,
+        "requests": 1,
+        "binary_sha256": null,
+        "full_transcript_verified": true
+      },
+      {
+        "launch_to_ready_ms": 5474.240919982549,
+        "response_first_byte_to_end_visible_ms": 1856.5125830064062,
+        "cpu_after_ready_ms": 4550.0,
+        "sampled_peak_tree_rss_kib": null,
+        "sampled_peak_tree_pss_kib": null,
+        "requests": 1,
+        "binary_sha256": null,
+        "full_transcript_verified": true
+      }
+    ]
+  },
+  "median": {
+    "native": {
+      "launch_to_ready_ms": 57.37376800971106,
+      "response_first_byte_to_end_visible_ms": 991.7880959983449,
+      "cpu_after_ready_ms": 270.0,
+      "requests": 1,
+      "full_transcript_verified": true
+    },
+    "reference": {
+      "launch_to_ready_ms": 5256.142653001007,
+      "response_first_byte_to_end_visible_ms": 1659.4278280099388,
+      "cpu_after_ready_ms": 4550.0,
+      "requests": 1,
+      "full_transcript_verified": true
+    }
+  }
+}

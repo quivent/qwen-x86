@@ -1,0 +1,113 @@
+{
+  "verified_utc": "2026-10-29T19:19:52.048032+00:00",
+  "version": "qwen-x86 0.2.0-ui-review.1 \u2014 static Linux x86-64 assembly; no libc or TLS library",
+  "binary": {
+    "bytes": 267216,
+    "sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+    "static_elf": true,
+    "interpreter": null,
+    "dynamic_dependencies": []
+  },
+  "source": {
+    "production_source_bytes": 1092412,
+    "assembly_s_bytes": 864661,
+    "input_sha256": {
+      "Makefile": "fab9350cfb5019fc084d1109ecc64dbd6be5940a10d80a3180b802a80cfda66f",
+      "src/abi.inc": "2f805e0bc76de24df62099a36db472433f3f2792ccc5b6ab6c0d16719e9b664b",
+      "src/aesgcm.s": "0b2986c86af8da3ff302d28eed56ecd25d482bc069c97e73ddc7c670ccdb44b1",
+      "src/agents.s": "c302a606f78ef6fd496b20e2964ee747af9fcfa8d58ad687c304674d0c4daa3a",
+      "src/http.s": "0b83a8dc33140f1937ea515d30a9231010eff9a7e2a7c694366610409ac1da2e",
+      "src/json.s": "b5561639a2d0f688ed0beb105f920823d305c51434e8066c667855f34d76a99f",
+      "src/main.s": "eadaebe37d03c39f6a7b0fc8a3a7653ce0e494984480649e02122bb7680a3584",
+      "src/mcp.s": "cea8cf82b9042ef2b8deb56e1421f24e006cdf0926f1af9b59f1d9d310b07545",
+      "src/mcp_server.s": "8b34e0bae547cc4459fb32795082a36bf1488993890a6f8acb1a7447b049d787",
+      "src/net.s": "f64d011ac5b6d6cab7be10eee8fa1b0ab5d04dbd89e5fdc13c0fc70be7bf354c",
+      "src/oauth.s": "315b36b113df108c411086a381398845cd7215ad2107775ff5e968ad67322fac",
+      "src/plugins.s": "b1d85b829323f8312563188a3452e9dfc376fbfafa05fe77f6049dea2f8d6e12",
+      "src/rsa.s": "915e2a67a13e7de8bec350558616c8c0fb93534210ff21d3940237acc2375b02",
+      "src/runtime.s": "775060ca96b18cd30a868a88c76380a9b08bd70ab04e8a87fc575b3023a8a38e",
+      "src/sha256.s": "654e2c91b97d03afd1e14e8c01d6cf1f9cc67f2560c6854cc50a179f458c56be",
+      "src/stream.s": "7cef87f2f840d6ef07027130f241767aedab6477b07f3bf91b0a09a770a3f727",
+      "src/terminal.s": "9bda93d3f60115d078e6f65f3b5ab477c50d450000d9c645d7f0825028b7b472",
+      "src/tls.s": "108b3de7a5c310286caacbf723bda7d748c1ca529561565be3cfff47f424d12c",
+      "src/tools.json": "edb43d294d7474d7f538c91ac26f568060e39b4ca6dd17f0490b047d99abbb31",
+      "src/tools.s": "61c9d349d6e584f9c6077897807ac5ea2fb4e686772049698517995d4c40e924",
+      "src/tools_readonly.json": "f1ac96505f81932064a85008bd53230e3f28c607d59898e2e2eab16695a6266f",
+      "src/ui.s": "9f88f69288ea3920419104d8ebe880438bf7f6db2773f569aab2197b479cfefa",
+      "src/ui_abi.inc": "3b6a9a4f36356f2faaf5042e81a94ed454daf256c4979a48bee2f992070bab48",
+      "src/ui_error_response.s": "ff91964218316ed55891ffadc6bb06459fea560053d43871056543c6f197d998",
+      "src/ui_external_editor.s": "2980ca94b6f287f4edd6db26d4f5a0af07b901a984826fc9a3525b8d3c34acc7",
+      "src/ui_formatter_palettes.inc": "7c653cfd1f6a15334dffd9a4c1cbfa00e8873f9c2704f6d577fa760eb9b53e0c",
+      "src/ui_help.s": "f57f432df0f28e7df29d821879cb921a2ab6c368750a02c198f47cc7c94e62d6",
+      "src/ui_input.s": "a69f90841f72d87c762e5e281941f891030db27572af6fd887a5710656c9e0e7",
+      "src/ui_markdown.s": "1ed9f336db11b495b7969deffe97a1ad8c359a9d8af86b4f0a91edcf47fe0ac9",
+      "src/ui_mermaid.s": "c5fc359721b7212b8741c9bef2ca32d5ca2494c79ccdad501b454fcc744c6c85",
+      "src/ui_mermaid_palettes.inc": "772bb3d9b8ec611d432d4f7c1d82332f13ce18f2f3229178f1285f17750cfee1",
+      "src/ui_paths.s": "6c17f4296ded7ef6b9031c27754df35839209ef523e126559aaebd9ef44012b6",
+      "src/ui_preferences.s": "c2dc7fee5501198cf4da4ff328b16e2f94376e65be1f3a4dc074d49ab06e38bf",
+      "src/ui_sessions.s": "53ef270cfc77742ab8767bc1c3bce4acd5351b6eb13aa12b3a95e62f4d4ceec7",
+      "src/ui_shell.s": "7f174ef14a5091375db77cffd30de66184277c3d277d7f6e52bfd7884fde660e",
+      "src/ui_themes.inc": "986ada61041dfb02ddc04fcfabad39f3ef16b0cde1a790867926b0377897b9e8",
+      "src/ui_tool_preview.s": "6b9f06acea2f32fd081433d8cc890c5056845b12a6978427519e9b979c0871fc",
+      "src/ui_unicode.inc": "fe2ae1f4a472a2bec502be2e57119748e5c419f2788ca58795a0b610342b7eee",
+      "src/x25519.s": "0a0dcc7f6487f12ffb6e895562f4165ed26054f87c04e05239d76971d3d26e23",
+      "src/x509.s": "53d2b6386d2d1dac061330561748ec94f8e5ac21233d504f2488360f88567482"
+    }
+  },
+  "clean_build": {
+    "bytes": 267216,
+    "sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+    "identical": true,
+    "scope": "Fresh temporary directory containing only Makefile and checked-in src files; GNU as and GNU ld, no runtime/code-generation dependencies."
+  },
+  "full_tests": {
+    "command": "make test",
+    "tests": 390,
+    "seconds": 76.776,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "skip": "Optional public-network TLS probe",
+    "log_sha256": "d77cbb0c4641e4f8aae5d6085fdc96649df55ca4acc39d7f076d759dce362429",
+    "passed": 389
+  },
+  "public_tls_probe": {
+    "command": "QWEN_X86_LIVE_TLS_TEST=1 python3 -m unittest discover -s tests -p test_tls.py -k test_live_default_qwen_tls_without_http_or_credentials -v",
+    "passed": true,
+    "http_or_credentials_sent": false,
+    "log_sha256": "189fdd9488ed10a41e8b6bfdac80a510ac7e25545d57038493370d30ef91cb3c"
+  },
+  "reference": {
+    "qwen_code_version": "0.24.5",
+    "node_version": "v22.23.2",
+    "source_chunks_sha256": {
+      "startInteractiveUI-Z54XKH35.js": "f1e85e00e85fead690c86234fe98da8b610d1fce859a3d48fa51acfbdf25b528",
+      "chunk-Q36IJ74U.js": "dfd03911a9889c0f4282116a57e3d4bec97c8ff5b0ca6052053e3725191b5de1",
+      "chunk-NHSGF64C.js": "5e5504d8edd036064ab6c973984eb66fafde417ae8c6f19e855ccafa7a5ac610",
+      "chunk-OICDXWXP.js": "a47993bc6e668cdcc9058838b2fe11587e9e20bd9199d156f2953fbf9589d313"
+    }
+  },
+  "ui_evidence": {
+    "paired_states": 23,
+    "all_native_captures_match_binary": true,
+    "manifest": "docs/ui-captures/manifest.json",
+    "full_ui_parity_achieved": false,
+    "remaining_differences": "docs/ui-parity.md"
+  },
+  "benchmarks": {
+    "timing": "docs/ui-benchmark.json",
+    "memory": "docs/ui-benchmark-memory.json",
+    "separate_passes": true,
+    "all_native_run_hashes_match": true,
+    "full_streamed_text_verified": true,
+    "paid_inference": false
+  },
+  "host": {
+    "architecture": "x86_64",
+    "kernel": "6.8.0-147-generic"
+  },
+  "not_verified": [
+    "Full reference UI/feature parity",
+    "Real device authorization and authenticated remote model inference"
+  ]
+}

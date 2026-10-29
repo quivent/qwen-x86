@@ -71,7 +71,7 @@ class NativeCancellationCLI(unittest.TestCase):
                     self.assertTrue(predicate(), explanation + ': ' + repr(bytes(output)))
 
                 try:
-                    prompt = '› '.encode()
+                    prompt = b'> '
                     until(lambda: prompt in output, 4, 'initial prompt missing')
                     raw = termios.tcgetattr(slave)
                     self.assertFalse(raw[3] & termios.ISIG)

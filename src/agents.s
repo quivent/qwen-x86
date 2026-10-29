@@ -528,6 +528,14 @@ a_copy_z:
  jnz a_copy_z
  ret
 
+# Public nonblocking refresh/count for session-switch guards.
+.global agents_running_count
+agents_running_count:
+ sub rsp,8
+ call a_pump_all
+ add rsp,8
+ jmp a_running_count
+
 a_running_count:
  lea rdx,[rip+a_jobs]
  xor eax,eax

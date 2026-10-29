@@ -1,0 +1,381 @@
+{
+  "reference_version": "0.24.5",
+  "scope": "Paired actual terminal captures from the parity, dialog, rich-response and saved-session fixture books. No overall parity pass is asserted.",
+  "paired_states": 23,
+  "frames": [
+    {
+      "state": "approval",
+      "client": "reference",
+      "image": "reference/approval.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "approval",
+      "client": "native",
+      "image": "native/approval.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-agents-manage",
+      "client": "reference",
+      "image": "reference/dialog-agents-manage.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-agents-manage",
+      "client": "native",
+      "image": "native/dialog-agents-manage.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-extensions",
+      "client": "reference",
+      "image": "reference/dialog-extensions.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-extensions",
+      "client": "native",
+      "image": "native/dialog-extensions.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-help",
+      "client": "reference",
+      "image": "reference/dialog-help.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-help",
+      "client": "native",
+      "image": "native/dialog-help.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-model",
+      "client": "reference",
+      "image": "reference/dialog-model.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-model",
+      "client": "native",
+      "image": "native/dialog-model.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-resume",
+      "client": "reference",
+      "image": "reference/dialog-resume.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-resume",
+      "client": "native",
+      "image": "native/dialog-resume.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-theme",
+      "client": "reference",
+      "image": "reference/dialog-theme.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-theme",
+      "client": "native",
+      "image": "native/dialog-theme.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "initial-100x30",
+      "client": "reference",
+      "image": "reference/initial-100x30.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "initial-100x30",
+      "client": "native",
+      "image": "native/initial-100x30.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "initial-120x40",
+      "client": "reference",
+      "image": "reference/initial-120x40.png",
+      "binary_sha256": null,
+      "columns": 120,
+      "rows": 40
+    },
+    {
+      "state": "initial-120x40",
+      "client": "native",
+      "image": "native/initial-120x40.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 120,
+      "rows": 40
+    },
+    {
+      "state": "initial-80x24",
+      "client": "reference",
+      "image": "reference/initial-80x24.png",
+      "binary_sha256": null,
+      "columns": 80,
+      "rows": 24
+    },
+    {
+      "state": "initial-80x24",
+      "client": "native",
+      "image": "native/initial-80x24.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 80,
+      "rows": 24
+    },
+    {
+      "state": "long-response",
+      "client": "reference",
+      "image": "reference/long-response.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "long-response",
+      "client": "native",
+      "image": "native/long-response.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "markdown",
+      "client": "reference",
+      "image": "reference/markdown.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "markdown",
+      "client": "native",
+      "image": "native/markdown.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "resized",
+      "client": "reference",
+      "image": "reference/resized.png",
+      "binary_sha256": null,
+      "columns": 80,
+      "rows": 24
+    },
+    {
+      "state": "resized",
+      "client": "native",
+      "image": "native/resized.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 80,
+      "rows": 24
+    },
+    {
+      "state": "rich-math",
+      "client": "reference",
+      "image": "reference/rich-math.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "rich-math",
+      "client": "native",
+      "image": "native/rich-math.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "rich-mermaid",
+      "client": "reference",
+      "image": "reference/rich-mermaid.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "rich-mermaid",
+      "client": "native",
+      "image": "native/rich-mermaid.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "rich-table",
+      "client": "reference",
+      "image": "reference/rich-table.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "rich-table",
+      "client": "native",
+      "image": "native/rich-table.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "scrolled",
+      "client": "reference",
+      "image": "reference/scrolled.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "scrolled",
+      "client": "native",
+      "image": "native/scrolled.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-picker-populated",
+      "client": "reference",
+      "image": "reference/session-picker-populated.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-picker-populated",
+      "client": "native",
+      "image": "native/session-picker-populated.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-preview-scrolled",
+      "client": "reference",
+      "image": "reference/session-preview-scrolled.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-preview-scrolled",
+      "client": "native",
+      "image": "native/session-preview-scrolled.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-preview-top",
+      "client": "reference",
+      "image": "reference/session-preview-top.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-preview-top",
+      "client": "native",
+      "image": "native/session-preview-top.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-resumed",
+      "client": "reference",
+      "image": "reference/session-resumed.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "session-resumed",
+      "client": "native",
+      "image": "native/session-resumed.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "slash-completion",
+      "client": "reference",
+      "image": "reference/slash-completion.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "slash-completion",
+      "client": "native",
+      "image": "native/slash-completion.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "tool-complete",
+      "client": "reference",
+      "image": "reference/tool-complete.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "tool-complete",
+      "client": "native",
+      "image": "native/tool-complete.png",
+      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "columns": 100,
+      "rows": 30
+    }
+  ],
+  "scenario_reports": [
+    "parity-manifest.json",
+    "dialog-manifest.json",
+    "rich-manifest.json",
+    "session-manifest.json"
+  ]
+}

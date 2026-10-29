@@ -1,0 +1,24 @@
+{
+  "reference_version": "0.24.5",
+  "scope": "Actual default Ink reference and production assembly, same local mock provider, explicit default approval mode, fixturecapture.txt resetbetweenclients, auto-update disabled in isolated profiles.",
+  "frames": [
+    "docs/ui-captures/native/approval.png",
+    "docs/ui-captures/native/initial-100x30.png",
+    "docs/ui-captures/native/initial-120x40.png",
+    "docs/ui-captures/native/initial-80x24.png",
+    "docs/ui-captures/native/long-response.png",
+    "docs/ui-captures/native/markdown.png",
+    "docs/ui-captures/native/resized.png",
+    "docs/ui-captures/native/rich-math.png",
+    "docs/ui-captures/native/rich-mermaid.png",
+    "docs/ui-captures/native/rich-table.png",
+    "docs/ui-captures/native/scrolled.png",
+    "docs/ui-captures/native/session-picker-populated.png",
+    "docs/ui-captures/native/session-preview-scrolled.png",
+    "docs/ui-captures/native/session-preview-top.png",
+    "docs/ui-captures/native/session-resumed.png",
+    "docs/ui-captures/native/slash-completion.png",
+    "docs/ui-captures/native/tool-complete.png"
+  ],
+  "native_requests": 4
+}

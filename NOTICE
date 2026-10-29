@@ -1,0 +1,11 @@
+qwen-x86
+
+UI artwork, presentation behavior, theme palettes, LaTeX substitution tables,
+Mermaid diagrams and help presentation are adapted from Qwen Code v0.24.5,
+licensed under the Apache License, Version 2.0. Upstream copyright notices
+belong to their respective authors, including Google LLC and the Qwen Team.
+
+Unicode property ranges are generated from Unicode 17 properties exposed by
+the development-only regex package. Unicode data is subject to Unicode License
+v3. Its copyright and permission notice is included in LICENSE-UNICODE.
+Original notice: https://www.unicode.org/license.txt

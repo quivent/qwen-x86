@@ -2,6 +2,7 @@
 Python is a test harness, never a runtime dependency of qwen-x86.
 """
 import ctypes
+import errno
 import json
 import os
 import pty
@@ -123,6 +124,20 @@ tools_test_cancel:
             output = self.call("run_shell", {"command": "exec 1>&- 2>&-; sleep 0.01; exit 7", "timeout_seconds": 1})
             self.assertIn("exited unsuccessfully", output)
         self.assertEqual(set(os.listdir("/proc/self/fd")), before)
+
+    def test_error_status_is_independent_of_file_and_shell_text(self):
+        (self.root / "message.txt").write_text("Error: this is ordinary file content")
+        self.assertTrue(self.call("read_file", {"path":"message.txt"}).startswith("Error:"))
+        self.assertEqual(self.lib.tools_last_error(), 0)
+        self.call("read_file", {"path":"missing.txt"})
+        self.assertEqual(self.lib.tools_last_error(), 1)
+        self.allow()
+        self.call("run_shell", {"command":"printf 'Error: ordinary stdout'"})
+        self.assertEqual(self.lib.tools_last_error(), 0)
+        self.call("run_shell", {"command":"exit 7"})
+        self.assertEqual(self.lib.tools_last_error(), 1)
+        self.call("read_file", {"path":"message.txt"})
+        self.assertEqual(self.lib.tools_last_error(), 0)
 
     def test_read_unicode_and_limit(self):
         (self.root / "café.txt").write_text("hello\nλ世界\n")
@@ -255,11 +270,23 @@ tools_test_cancel:
             self.assertEqual(self.lib.tools_test_cancel(), -125)
             descendant = int(result.splitlines()[0])
             status = Path(f"/proc/{descendant}/status")
-            try:
-                text = status.read_text()
-            except FileNotFoundError:
-                text = ""
-            self.assertTrue(not text or "State:\tZ" in text, text)
+            # wait4 reaps our direct shell, while its killed background process
+            # may still be scheduling its exit on another CPU. Require the
+            # whole-group kill to become observable within a bounded deadline.
+            deadline = time.monotonic() + 2
+            while True:
+                try:
+                    text = status.read_text()
+                except OSError as error:
+                    if error.errno not in (errno.ENOENT, errno.ESRCH):
+                        raise
+                    text = ""
+                if not text or "State:\tZ" in text:
+                    break
+                if time.monotonic() >= deadline:
+                    self.fail(f"Shell descendant {descendant} survived process-group "
+                              f"cancellation for 2 seconds:\n{text}")
+                time.sleep(0.01)
         finally:
             sender.join(timeout=2)
             os.dup2(saved_stdin, 0)

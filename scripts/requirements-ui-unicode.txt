@@ -1,0 +1,2 @@
+# Development-only Unicode table generator; no application runtime dependencies.
+regex==2026.9.29

@@ -1,0 +1,30 @@
+
+   ▄▄▄▄▄▄  ▄▄     ▄▄ ▄▄▄▄▄▄▄ ▄▄▄    ▄▄   ┌───────────────────────────────────────────────────────┐
+  ██╔═══██╗██║    ██║██╔════╝████╗  ██║  │ >_ Qwen Code (v0.24.5)                                │
+  ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                       │
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-ui-capture-xl6di__f/workspace               │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘
+
+  Tips: Type / to open the command popup; Tab autocompletes slash commands and saved prompts.
+  ●︎ Extensions changed on disk. Run /reload-plugins to apply updates.
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+> /he ​
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  > help                          for help on Qwen Code
+    qc-helper <question> [Skill]  Answer any question about Qwen Code usage, features, configurat…
+    theme                         change the theme
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -16,13 +16,13 @@ def idle(binary,label):
   proc=subprocess.Popen(args,stdin=slave,stdout=slave,stderr=slave,env=env,close_fds=True);os.close(slave)
   try:
    output=b'';deadline=time.monotonic()+5
-   while b'QWEN' not in output and time.monotonic()<deadline:
+   while b'qwen' not in output.lower() and time.monotonic()<deadline:
     if select.select([master],[],[],0.1)[0]:
      part=os.read(master,65536);output+=part
      # Native terminal libraries may query terminal background/cursor.
      if b'\x1b]11;' in part:os.write(master,b'\x1b]11;rgb:0000/0000/0000\x1b\\')
      if b'\x1b[6n' in part:os.write(master,b'\x1b[1;1R')
-   if b'QWEN' not in output:raise RuntimeError(label+' did not display its interface')
+   if b'qwen' not in output.lower():raise RuntimeError(label+' did not display its interface')
    time.sleep(.15)
    fields={}
    for line in pathlib.Path(f'/proc/{proc.pid}/status').read_text().splitlines():

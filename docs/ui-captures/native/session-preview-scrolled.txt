@@ -1,0 +1,30 @@
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   │
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           │
+                                                                                                   █
+  > /resume                                                                                        █
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │ Session Preview                                                                              │
+  │ SAVED_PREVIEW_USER                                                                           │
+  │                                                                                              │
+  │ Preview line 03                                                                              │
+  │ Preview line 04                                                                              │
+  │ Preview line 05                                                                              │
+  │ Preview line 06                                                                              │
+  │ Preview line 07                                                                              │
+  │ Preview line 08                                                                              │
+  │ Preview line 09                                                                              │
+  │ Preview line 10                                                                              │
+  │ Preview line 11                                                                              │
+  │ Preview line 12                                                                              │
+  │ Preview line 13                                                                              │
+  │ Preview line 14                                                                              │
+  │ Preview line 15                                                                              │
+  │ Preview line 16                                                                              │
+  │ Preview line 17                                                                              │
+  │ Preview line 18                                                                              │
+  │ Preview line 19                                                                              │
+  │ Preview line 20                                                                              │
+  │                                                                                              │
+  │ Enter to resume · ↑↓/PgUp/PgDn to scroll · Esc back                                          │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
