@@ -2,6 +2,8 @@
 
 **103,120 bytes (100.7 KiB)** — statically linked x86-64 assembly, including TLS and cryptography. No libc, Node.js, Go runtime, or shared TLS library.
 
+[See the running assembly UI](#the-assembly-ui) · [Download the private review build](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-review.1)
+
 ## Benchmarks
 
 ### Current tool-loop performance
@@ -29,6 +31,25 @@ These earlier measurements preceded the wait optimization. Streaming and memory 
 Local controlled fixtures measure client overhead. The clients have different feature sets; JavaScript includes extra default cleanup. These results do not measure real model inference, WAN latency, or interactive TUI rendering. [Usage methodology](docs/usage-benchmark.json) · [Startup methodology](docs/benchmark.json) · [Detailed optimization](#critical-path-wait-optimization).
 
 A Linux x86-64 coding client written in GNU Intel-syntax assembly. The production executable is statically linked assembly: no libc, JavaScript engine, Go runtime, shared TLS library, or HTTPS helper process.
+
+
+## The assembly UI
+
+Recorded from the running **267,216-byte assembly executable**, using real terminal sessions and a local model fixture. These screens belong to the [private UI review build](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-review.1). The implementation is under review in [PR #1](https://github.com/quivent/qwen-x86/pull/1).
+
+![Assembly client startup and composer](docs/ui-captures/native/initial-100x30.png)
+
+| File approval | Completed write |
+|---|---|
+| ![Assembly file approval with numbered preview](docs/ui-captures/native/approval.png) | ![Assembly completed tool card with actual file content](docs/ui-captures/native/tool-complete.png) |
+
+| Theme selection and live preview | Saved-session preview |
+|---|---|
+| ![Assembly theme picker and code preview](docs/ui-captures/native/dialog-theme.png) | ![Assembly saved-session transcript preview](docs/ui-captures/native/session-preview-top.png) |
+
+[Compare all 23 states with Qwen Code](https://github.com/quivent/qwen-x86/blob/fix/ui-parity/docs/ui-parity.md) · [Raw terminal text and cell records](https://github.com/quivent/qwen-x86/tree/fix/ui-parity/docs/ui-captures)
+
+**Full UI parity remains incomplete.** Extension/agent management, attachments, custom themes and some rendering/interaction details still differ or are absent. The review documents those gaps.
 
 
 ## Install globally
