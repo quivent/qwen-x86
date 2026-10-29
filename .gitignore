@@ -1,0 +1,6 @@
+/build/
+/qwen-x86
+__pycache__/
+*.pyc
+core
+core.*

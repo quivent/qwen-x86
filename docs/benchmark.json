@@ -1,0 +1,48 @@
+{
+  "verified": "2026-10-29",
+  "scope": "Warm --version process startup and idle offline terminal; not model inference speed or feature-parity proof.",
+  "clients": {
+    "assembly": {
+      "elf_bytes": 103112,
+      "startup": {
+        "median_ms": 0.3541,
+        "p95_ms": 0.474,
+        "runs": 50,
+        "cache": "warm"
+      },
+      "idle_terminal": {
+        "VmSize_KiB": 23364,
+        "VmRSS_KiB": 164,
+        "RssAnon_KiB": 68,
+        "RssFile_KiB": 96
+      }
+    },
+    "go": {
+      "elf_bytes": 7545016,
+      "startup": {
+        "median_ms": 3.5278,
+        "p95_ms": 6.031,
+        "runs": 50,
+        "cache": "warm"
+      },
+      "idle_terminal": {
+        "VmSize_KiB": 1231804,
+        "VmRSS_KiB": 7028,
+        "RssAnon_KiB": 1284,
+        "RssFile_KiB": 5744
+      }
+    },
+    "original_javascript": {
+      "installed_file_bytes": 320259010,
+      "startup": {
+        "median_ms": 66.9134,
+        "p95_ms": 86.31,
+        "runs": 50,
+        "cache": "warm"
+      },
+      "idle_terminal": "not measured"
+    }
+  },
+  "startup_ratio_javascript_over_assembly": 188.97,
+  "startup_ratio_go_over_assembly": 9.96
+}
