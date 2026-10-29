@@ -62,6 +62,8 @@
 .equ R_MAXRANK,264
 .equ R_NUMBER,288
 .equ R_TEMP,320
+.equ R_BODY_LINES,376
+.equ R_BODY_LIMIT,384
 .equ R_PARTS,512
 .equ R_SOURCE,R_PARTS+R_LINES_MAX*16
 .equ R_NODEBUF,R_SOURCE+R_MAX*4
@@ -73,6 +75,8 @@
 .equ R_LAYER,R_QUEUE+R_NODES*8
 .equ R_TEXTBUF,R_LAYER+R_NODES*8
 .equ R_TLEN,352
+.equ R_THEME_BASE,360
+.equ R_THEME_ID,368
 .equ R_CANVAS,R_TEXTBUF+65536
 .equ R_FRAME,((R_CANVAS+R_WIDTH_MAX*R_HEIGHT_MAX*16+15)/16)*16+8
 .macro RE
@@ -114,12 +118,14 @@ ui_render_mermaid:
  mov [rbx+R_OUT],rdx
  mov [rbx+R_CAP],rcx
  mov [rbx+R_INDEX],r10
+ mov [rbx+R_THEME_ID],r9
  cmp r9,OFFSET FLAT:UI_THEME_PALETTE_COUNT
  jb .R_theme_valid
  xor r9d,r9d
 .R_theme_valid:
  imul r9,r9,48
  lea rax,[rip+.r_palettes]
+ mov [rbx+R_THEME_BASE],rax
  add rax,r9
  mov [rbx+R_THEME],rax
  mov qword ptr [rbx+R_LEN],0
@@ -132,6 +138,8 @@ ui_render_mermaid:
  mov qword ptr [rbx+R_MEMBERCOUNT],0
  mov qword ptr [rbx+R_CURRENT_CLASS],-1
  mov qword ptr [rbx+R_WARNING],0
+ mov qword ptr [rbx+R_BODY_LIMIT],0
+ mov qword ptr [rbx+R_BODY_LINES],0
  cmp rsi,R_MAX
  ja .R_invalid
  cmp r8,8
@@ -150,6 +158,19 @@ ui_render_mermaid:
  mov [rbx+R_SIZE],rax
  lea rdx,[rbx+R_SOURCE]
  mov [rbx+R_SRC],rdx
+ cmp qword ptr [rbx+R_THEME_ID],OFFSET FLAT:UI_THEME_PALETTE_COUNT
+ jb .R_custom_theme_ready
+ mov rax,[rip+.r_custom_theme_reader]
+ test rax,rax
+ jz .R_custom_theme_ready
+ mov rdi,[rbx+R_THEME_ID]
+ mov esi,2
+ call rax
+ test rax,rax
+ jz .R_custom_theme_ready
+ mov [rbx+R_THEME],rax
+ mov qword ptr [rbx+R_THEME_BASE],0
+.R_custom_theme_ready:
  call .R_collect_lines
  mov qword ptr [rbx+R_KIND],0
  cmp qword ptr [rbx+R_NLINES],0
@@ -178,6 +199,78 @@ ui_render_mermaid:
  call .R_prefix
  test rax,rax
  jnz .R_class_start
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_4]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_4_next
+ mov qword ptr [rbx+R_KIND],4
+ jmp .R_generic_start
+.R_dispatch_4_next:
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_5]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_5_next
+ mov qword ptr [rbx+R_KIND],5
+ jmp .R_generic_start
+.R_dispatch_5_next:
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_6]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_6_next
+ mov qword ptr [rbx+R_KIND],6
+ jmp .R_generic_start
+.R_dispatch_6_next:
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_7]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_7_next
+ mov qword ptr [rbx+R_KIND],7
+ jmp .R_generic_start
+.R_dispatch_7_next:
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_8]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_8_next
+ mov qword ptr [rbx+R_KIND],8
+ jmp .R_generic_start
+.R_dispatch_8_next:
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_9]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_9_next
+ mov qword ptr [rbx+R_KIND],9
+ jmp .R_generic_start
+.R_dispatch_9_next:
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_10]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_10_next
+ mov qword ptr [rbx+R_KIND],10
+ jmp .R_generic_start
+.R_dispatch_10_next:
+ mov rdi,[rbx+R_PARTS]
+ mov rsi,[rbx+R_PARTS+8]
+ lea rdx,[rip+.r_key_11]
+ call .R_prefix
+ test rax,rax
+ jz .R_dispatch_11_next
+ mov qword ptr [rbx+R_KIND],11
+ jmp .R_generic_start
+.R_dispatch_11_next:
  jmp .R_fallback
 .R_flow_header:
  mov qword ptr [rbx+R_KIND],1
@@ -226,9 +319,446 @@ ui_render_mermaid:
  call .R_title
  call .R_class_output
  jmp .R_finish
+
+# Source-backed bounded textual previews for the remaining Mermaid families.
+# All parsed spans borrow sanitized source; every display line is grapheme clipped.
+.R_generic_start:
+ mov qword ptr [rbx+R_BODY_LIMIT],1
+ mov rax,[rbx+R_KIND]
+ cmp rax,4
+ je .R_state_start
+ cmp rax,5
+ je .R_er_start
+ sub rax,6
+ shl rax,4
+ lea rdx,[rip+.r_generic_titles]
+ mov rdi,[rdx+rax]
+ add rdi,rdx
+ mov rsi,[rdx+rax+8]
+ call .R_title
+ cmp qword ptr [rbx+R_KIND],7
+ jne .R_generic_initialize
+ mov r12d,1
+.R_pie_find_title:
+ cmp r12,[rbx+R_NLINES]
+ jae .R_generic_initialize
+ cmp r12,81
+ jae .R_generic_initialize
+ mov rax,r12
+ shl rax,4
+ mov r13,[rbx+R_PARTS+rax]
+ mov r14,[rbx+R_PARTS+rax+8]
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_title_key]
+ call .R_prefix
+ test rax,rax
+ jnz .R_pie_title_emit
+ inc r12
+ jmp .R_pie_find_title
+.R_pie_title_emit:
+ mov rdi,r13
+ mov rsi,r14
+ call .R_line
+ RLINE .r_empty
+.R_generic_initialize:
+ mov r12d,1
+ xor ebp,ebp
+.R_generic_next:
+ cmp r12,[rbx+R_NLINES]
+ jae .R_generic_done
+ cmp r12,81
+ jae .R_generic_done
+ mov rax,r12
+ shl rax,4
+ mov r13,[rbx+R_PARTS+rax]
+ mov r14,[rbx+R_PARTS+rax+8]
+ inc r12
+ cmp r14,1000
+ jbe .R_generic_size_ready
+ mov r14d,1000
+.R_generic_utf8_edge:
+ mov al,[r13+r14]
+ and al,0xc0
+ cmp al,0x80
+ jne .R_generic_size_ready
+ dec r14
+ jmp .R_generic_utf8_edge
+.R_generic_size_ready:
+ mov rax,[rbx+R_KIND]
+ sub rax,4
+ shl rax,4
+ lea rdx,[rip+.r_generic_keys]
+ mov rdx,[rdx+rax]
+ lea rax,[rip+.r_generic_keys]
+ add rdx,rax
+ mov rdi,r13
+ mov rsi,r14
+ call .R_prefix
+ test rax,rax
+ jz .R_generic_not_header
+ cmp rax,r14
+ jae .R_generic_next
+ mov al,[r13+rax]
+ cmp al,32
+ je .R_generic_next
+.R_generic_not_header:
+ call .R_treset
+ cmp qword ptr [rbx+R_KIND],9
+ jae .R_generic_tree
+ cmp qword ptr [rbx+R_KIND],7
+ je .R_generic_pie
+ cmp qword ptr [rbx+R_KIND],6
+ jne .R_generic_section
+ # Gantt directives are metadata, not displayed tasks.
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_gantt_skip_0]
+ call .R_prefix
+ test rax,rax
+ jnz .R_generic_next
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_gantt_skip_1]
+ call .R_prefix
+ test rax,rax
+ jnz .R_generic_next
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_gantt_skip_2]
+ call .R_prefix
+ test rax,rax
+ jnz .R_generic_next
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_gantt_skip_3]
+ call .R_prefix
+ test rax,rax
+ jnz .R_generic_next
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_gantt_skip_4]
+ call .R_prefix
+ test rax,rax
+ jnz .R_generic_next
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_gantt_skip_5]
+ call .R_prefix
+ test rax,rax
+ jnz .R_generic_next
+.R_generic_section:
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_section_key]
+ call .R_prefix
+ test rax,rax
+ jz .R_generic_title
+ RLINE .r_empty
+ lea rdi,[rip+.r_section_label]
+ mov esi,OFFSET FLAT:.r_section_label_len
+ call .R_tput
+ add r13,8
+ sub r14,8
+ jmp .R_generic_add_span
+.R_generic_title:
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_title_key]
+ call .R_prefix
+ test rax,rax
+ jz .R_generic_bullet
+ lea rdi,[rip+.r_title_label]
+ mov esi,OFFSET FLAT:.r_title_label_len
+ call .R_tput
+ add r13,6
+ sub r14,6
+ jmp .R_generic_add_span
+.R_generic_tree:
+ # Recover original leading spaces discarded by the shared logical-line index.
+ mov rdx,r13
+ mov rcx,[rbx+R_SRC]
+.R_tree_indent_scan:
+ cmp rdx,rcx
+ jbe .R_tree_indent_done
+ cmp byte ptr [rdx-1],' '
+ jne .R_tree_indent_done
+ dec rdx
+ jmp .R_tree_indent_scan
+.R_tree_indent_done:
+ mov r15,r13
+ sub r15,rdx
+ and r15,-2
+.R_tree_indent_emit:
+ test r15,r15
+ jz .R_generic_bullet
+ lea rdi,[rip+.r_space]
+ mov esi,1
+ call .R_tput
+ dec r15
+ jmp .R_tree_indent_emit
+.R_generic_bullet:
+ lea rdi,[rip+.r_bullet]
+ mov esi,OFFSET FLAT:.r_bullet_len
+ call .R_tput
+.R_generic_add_span:
+ mov rdi,r13
+ mov rsi,r14
+ call .R_trim
+ call .R_tput
+.R_generic_emit:
+ lea rdi,[rbx+R_TEXTBUF]
+ mov rsi,[rbx+R_TLEN]
+ call .R_line
+ inc rbp
+ jmp .R_generic_next
+.R_generic_pie:
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_title_key]
+ call .R_prefix
+ test rax,rax
+ jz .R_pie_slice
+ jmp .R_generic_next
+.R_pie_slice:
+ mov r15,r14
+.R_pie_find_colon:
+ test r15,r15
+ jz .R_generic_next
+ dec r15
+ cmp byte ptr [r13+r15],':'
+ jne .R_pie_find_colon
+ lea rdi,[r13+r15+1]
+ mov rsi,r14
+ sub rsi,r15
+ dec rsi
+ call .R_trim
+ test rsi,rsi
+ jz .R_generic_next
+ xor ecx,ecx
+.R_pie_number:
+ cmp rcx,rsi
+ jae .R_pie_valid
+ mov al,[rdi+rcx]
+ cmp al,'.'
+ je .R_pie_digit
+ cmp al,'0'
+ jb .R_generic_next
+ cmp al,'9'
+ ja .R_generic_next
+.R_pie_digit:
+ inc rcx
+ jmp .R_pie_number
+.R_pie_valid:
+ mov [rbx+R_LABELPTR],rdi
+ mov [rbx+R_LABELLEN],rsi
+ mov rdi,r13
+ mov rsi,r15
+ call .R_trim
+ test rsi,rsi
+ jz .R_generic_next
+ cmp byte ptr [rdi],34
+ je .R_pie_open_quote
+ cmp byte ptr [rdi],39
+ jne .R_pie_close_quote
+.R_pie_open_quote:
+ inc rdi
+ dec rsi
+.R_pie_close_quote:
+ test rsi,rsi
+ jz .R_generic_next
+ cmp byte ptr [rdi+rsi-1],34
+ je .R_pie_remove_close
+ cmp byte ptr [rdi+rsi-1],39
+ jne .R_pie_label
+.R_pie_remove_close:
+ dec rsi
+.R_pie_label:
+ call .R_tput
+ lea rdi,[rip+.r_colon]
+ mov esi,OFFSET FLAT:.r_colon_len
+ call .R_tput
+ mov rdi,[rbx+R_LABELPTR]
+ mov rsi,[rbx+R_LABELLEN]
+ call .R_tput
+ jmp .R_generic_emit
+.R_generic_done:
+ test rbp,rbp
+ jz .R_generic_empty
+ jmp .R_finish
+.R_generic_empty:
+ mov qword ptr [rbx+R_LEN],0
+ jmp .R_fallback
+.R_state_start:
+ lea rdi,[rip+.r_state_title]
+ mov esi,OFFSET FLAT:.r_state_title_len
+ call .R_title
+ xor ebp,ebp
+ xor r15d,r15d
+ mov qword ptr [rbx+R_MEMBERCOUNT],0
+.R_state_pass:
+ mov r12d,1
+.R_state_next:
+ cmp r12,[rbx+R_NLINES]
+ jae .R_state_pass_end
+ cmp r12,81
+ jae .R_state_pass_end
+ mov rax,r12
+ shl rax,4
+ mov r13,[rbx+R_PARTS+rax]
+ mov r14,[rbx+R_PARTS+rax+8]
+ inc r12
+ test r15,r15
+ jnz .R_state_transition
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.r_state_decl_key]
+ call .R_prefix
+ test rax,rax
+ jz .R_state_next
+ add r13,6
+ sub r14,6
+ test r14,r14
+ jz .R_state_next
+ xor ecx,ecx
+.R_state_alias:
+ lea rax,[rcx+4]
+ cmp rax,r14
+ ja .R_state_decl
+ cmp dword ptr [r13+rcx],0x20736120
+ je .R_state_alias_found
+ inc rcx
+ jmp .R_state_alias
+.R_state_alias_found:
+ add r13,rax
+ sub r14,rax
+.R_state_decl:
+ cmp rbp,20
+ jae .R_state_next
+ test rbp,rbp
+ jnz .R_state_decl_line
+ RLINE .r_states_label
+.R_state_decl_line:
+ mov rdi,r13
+ mov rsi,r14
+ call .R_trim
+ call .R_line
+ inc rbp
+ jmp .R_state_next
+.R_state_transition:
+ xor ecx,ecx
+.R_state_find_arrow:
+ lea rax,[rcx+3]
+ cmp rax,r14
+ ja .R_state_next
+ cmp word ptr [r13+rcx],0x2d2d
+ jne .R_state_arrow_next
+ cmp byte ptr [r13+rcx+2],'>'
+ je .R_state_arrow_found
+.R_state_arrow_next:
+ inc rcx
+ jmp .R_state_find_arrow
+.R_state_arrow_found:
+ mov [rbx+R_SCAN],rax
+ mov rdi,r13
+ mov rsi,rcx
+ call .R_trim
+ test rsi,rsi
+ jz .R_state_next
+ call .R_treset
+ call .R_tput
+ lea rdi,[rip+.r_state_arrow]
+ mov esi,OFFSET FLAT:.r_state_arrow_len
+ call .R_tput
+ mov rax,[rbx+R_SCAN]
+ add r13,rax
+ sub r14,rax
+ mov rdi,r13
+ mov rsi,r14
+ call .R_trim
+ test rsi,rsi
+ jz .R_state_next
+ mov r13,rdi
+ mov r14,rsi
+ xor ecx,ecx
+.R_state_colon:
+ cmp rcx,r14
+ jae .R_state_no_label
+ cmp byte ptr [r13+rcx],':'
+ je .R_state_label
+ inc rcx
+ jmp .R_state_colon
+.R_state_no_label:
+ mov rdi,r13
+ mov rsi,r14
+ call .R_tput
+ jmp .R_state_emit
+.R_state_label:
+ mov [rbx+R_SCAN],rcx
+ mov rdi,r13
+ mov rsi,rcx
+ call .R_trim
+ call .R_tput
+ lea rdi,[rip+.r_colon]
+ mov esi,OFFSET FLAT:.r_colon_len
+ call .R_tput
+ mov rcx,[rbx+R_SCAN]
+ lea rdi,[r13+rcx+1]
+ mov rsi,r14
+ sub rsi,rcx
+ dec rsi
+ call .R_trim
+ call .R_tput
+.R_state_emit:
+ cmp qword ptr [rbx+R_MEMBERCOUNT],0
+ jne .R_state_emit_line
+ RLINE .r_transitions_label
+.R_state_emit_line:
+ lea rdi,[rbx+R_TEXTBUF]
+ mov rsi,[rbx+R_TLEN]
+ call .R_line
+ inc qword ptr [rbx+R_MEMBERCOUNT]
+ jmp .R_state_next
+.R_state_pass_end:
+ test r15,r15
+ jnz .R_state_done
+ test rbp,rbp
+ jz .R_state_second_pass
+ RLINE .r_empty
+.R_state_second_pass:
+ inc r15
+ jmp .R_state_pass
+.R_state_done:
+ cmp qword ptr [rbx+R_MEMBERCOUNT],0
+ jne .R_finish
+ test rbp,rbp
+ jz .R_generic_empty
+ RLINE .r_transitions_none
+ jmp .R_finish
+.R_er_start:
+ call .R_class_parse
+ test rax,rax
+ js .R_fallback
+ cmp qword ptr [rbx+R_NCOUNT],0
+ je .R_fallback
+ lea rdi,[rip+.r_er_title]
+ mov esi,OFFSET FLAT:.r_er_title_len
+ call .R_title
+ call .R_class_output
+ jmp .R_finish
+
 .R_fallback:
+ mov qword ptr [rbx+R_BODY_LIMIT],0
  call .R_source_fallback
 .R_finish:
+ cmp qword ptr [rbx+R_BODY_LIMIT],0
+ je .R_finish_reset
+ cmp qword ptr [rbx+R_NLINES],81
+ jbe .R_finish_reset
+ lea rdi,[rip+.r_limit_warning]
+ mov esi,OFFSET FLAT:.r_limit_warning_len
+ call .R_warning_line
+.R_finish_reset:
  RC .r_reset
  mov rax,[rbx+R_ERR]
  test rax,rax
@@ -266,7 +796,7 @@ ui_render_mermaid:
  add rax,rdi
  mov rsi,[rax+8]
  mov rdi,[rax]
- lea rdx,[rip+.r_palettes]
+ mov rdx,[rbx+R_THEME_BASE]
  add rdi,rdx
  jmp .R_put
 .R_trim:
@@ -382,6 +912,12 @@ ui_render_mermaid:
  ret
 # Clip body line by complete graphemes, reserve ellipsis if needed.
 .R_line:
+ cmp qword ptr [rbx+R_BODY_LIMIT],0
+ je .R_line_allowed
+ cmp qword ptr [rbx+R_BODY_LINES],80
+ jae .R_line_limit_return
+ inc qword ptr [rbx+R_BODY_LINES]
+.R_line_allowed:
  push r12
  push r13
  push r14
@@ -437,6 +973,8 @@ ui_render_mermaid:
  pop r14
  pop r13
  pop r12
+ ret
+.R_line_limit_return:
  ret
 .R_number:
  sub rsp,8
@@ -497,6 +1035,20 @@ ui_render_mermaid:
  call .R_color
  RC .r_space
  RC .r_source_title
+ mov rax,[rbx+R_KIND]
+ cmp rax,4
+ jb .R_fallback_source_type
+ cmp rax,11
+ ja .R_fallback_source_type
+ sub rax,4
+ shl rax,4
+ lea rdx,[rip+.r_generic_keys]
+ mov rdi,[rdx+rax]
+ add rdi,rdx
+ mov rsi,[rdx+rax+8]
+ call .R_put
+ jmp .R_fallback_title_end
+.R_fallback_source_type:
  cmp qword ptr [rbx+R_NLINES],0
  je .R_fallback_unknown
  mov r12,[rbx+R_PARTS]
@@ -558,6 +1110,18 @@ ui_render_mermaid:
  RLINE .r_fence_end
  lea rdi,[rip+.r_fallback_warning]
  mov esi,OFFSET FLAT:.r_fallback_warning_len
+ mov rax,[rbx+R_KIND]
+ cmp rax,4
+ jb .R_fallback_warning_ready
+ cmp rax,11
+ ja .R_fallback_warning_ready
+ sub rax,4
+ shl rax,4
+ lea rdx,[rip+.r_generic_warnings]
+ mov rdi,[rdx+rax]
+ add rdi,rdx
+ mov rsi,[rdx+rax+8]
+.R_fallback_warning_ready:
  call .R_warning_line
  cmp qword ptr [rbx+R_WARNING],0
  je .R_fallback_done
@@ -602,6 +1166,12 @@ ui_render_mermaid:
  call .R_trim
  mov r12,rdi
  mov r13,rsi
+ cmp qword ptr [rbx+R_KIND],5
+ jne .R_node_identifier_ready
+ call .R_er_identifier
+ test eax,eax
+ jz .R_node_bad
+.R_node_identifier_ready:
  test r13,r13
  jz .R_node_bad
  cmp r13,128
@@ -980,6 +1550,23 @@ ui_render_mermaid:
  shl rax,4
  mov r13,[rbx+rax+R_PARTS]
  mov r14,[rbx+rax+R_PARTS+8]
+ cmp qword ptr [rbx+R_KIND],5
+ jne .R_class_regular_decl
+ cmp r14,2
+ jb .R_class_regular_decl
+ cmp byte ptr [r13+r14-1],123
+ jne .R_class_regular_decl
+ dec r14
+ mov rdi,r13
+ mov rsi,r14
+ call .R_trim
+ call .R_er_identifier
+ test eax,eax
+ jz .R_class_next
+ mov r13,rdi
+ mov r14,rsi
+ jmp .R_class_name_start
+.R_class_regular_decl:
  mov rdi,r13
  mov rsi,r14
  lea rdx,[rip+.r_class_declare]
@@ -1004,6 +1591,7 @@ ui_render_mermaid:
  call .R_trim
  mov r13,rdi
  mov r14,rsi
+.R_class_name_start:
  xor ebp,ebp
 .R_class_name:
  cmp rbp,r14
@@ -1107,7 +1695,7 @@ ui_render_mermaid:
  mov rax,[rbx+R_RELCOUNT]
  cmp rax,80
  jae .R_class_limit
- shl rax,9
+ shl rax,6
  lea rdi,[rbx+R_RELBUF]
  add rdi,rax
  mov rax,[rbx+R_FROM]
@@ -1147,6 +1735,8 @@ ui_render_mermaid:
  inc qword ptr [rbx+R_RELCOUNT]
  jmp .R_class_next
 .R_class_inline:
+ cmp qword ptr [rbx+R_KIND],5
+ je .R_class_block_member
  xor ebp,ebp
 .R_class_inline_colon:
  cmp rbp,r14
@@ -1200,7 +1790,94 @@ ui_render_mermaid:
  pop r13
  pop r12
  ret
+# ER identifiers are exactly the source ASCII identifier vocabulary.
+.R_er_identifier:
+ test rsi,rsi
+ jz .R_er_id_no
+ xor ecx,ecx
+.R_er_id_byte:
+ cmp rcx,rsi
+ jae .R_equal_yes
+ mov al,[rdi+rcx]
+ cmp al,'_'
+ je .R_er_id_next
+ cmp al,'.'
+ je .R_er_id_next
+ cmp al,'$'
+ je .R_er_id_next
+ cmp al,':'
+ je .R_er_id_next
+ cmp al,'-'
+ je .R_er_id_next
+ cmp al,'0'
+ jb .R_er_id_no
+ cmp al,'9'
+ jbe .R_er_id_next
+ or al,32
+ cmp al,'a'
+ jb .R_er_id_no
+ cmp al,'z'
+ ja .R_er_id_no
+.R_er_id_next:
+ inc rcx
+ jmp .R_er_id_byte
+.R_er_id_no:
+ xor eax,eax
+ ret
+.R_er_relation_op:
+ cmp rsi,4
+ jb .R_er_id_no
+ cmp rsi,6
+ ja .R_er_id_no
+ xor ecx,ecx
+ xor r8d,r8d
+.R_er_op_byte:
+ cmp rcx,rsi
+ jae .R_er_op_done
+ mov al,[rdi+rcx]
+ cmp al,'-'
+ je .R_er_op_dash
+ cmp al,'|'
+ je .R_er_op_next
+ cmp al,'o'
+ je .R_er_op_next
+ cmp al,'}'
+ je .R_er_op_next
+ cmp al,'{'
+ jne .R_er_id_no
+.R_er_op_next:
+ inc rcx
+ jmp .R_er_op_byte
+.R_er_op_dash:
+ test r8,r8
+ jnz .R_er_id_no
+ cmp rcx,1
+ jb .R_er_id_no
+ cmp rcx,2
+ ja .R_er_id_no
+ lea rax,[rcx+3]
+ cmp rax,rsi
+ ja .R_er_id_no
+ cmp byte ptr [rdi+rcx+1],'-'
+ jne .R_er_id_no
+ mov r8,rcx
+ add rcx,2
+ jmp .R_er_op_byte
+.R_er_op_done:
+ test r8,r8
+ jz .R_er_id_no
+ mov rax,rsi
+ sub rax,r8
+ sub rax,2
+ cmp rax,1
+ jb .R_er_id_no
+ cmp rax,2
+ ja .R_er_id_no
+ mov eax,1
+ ret
 .R_relation_op:
+ cmp qword ptr [rbx+R_KIND],5
+ je .R_er_relation_op
  # Only the documented ASCII relation vocabulary; anything else stays source.
  xor ecx,ecx
  xor r8d,r8d
@@ -1242,6 +1919,11 @@ ui_render_mermaid:
  push r14
  lea rdi,[rip+.r_classes]
  mov esi,OFFSET FLAT:.r_classes_len
+ cmp qword ptr [rbx+R_KIND],5
+ jne .R_class_header_ready
+ lea rdi,[rip+.r_entities]
+ mov esi,OFFSET FLAT:.r_entities_len
+.R_class_header_ready:
  call .R_header
  RLINE .r_empty
  cmp qword ptr [rbx+R_RELCOUNT],0
@@ -1252,7 +1934,7 @@ ui_render_mermaid:
  cmp r12,[rbx+R_RELCOUNT]
  jae .R_class_output_members
  mov rax,r12
- shl rax,9
+ shl rax,6
  lea r13,[rbx+R_RELBUF]
  add r13,rax
  call .R_treset
@@ -1290,7 +1972,13 @@ ui_render_mermaid:
  cmp qword ptr [rbx+R_MEMBERCOUNT],0
  je .R_class_output_done
  RLINE .r_empty
+ cmp qword ptr [rbx+R_KIND],5
+ je .R_class_attributes_label
  RLINE .r_members
+ jmp .R_class_members_label_ready
+.R_class_attributes_label:
+ RLINE .r_attributes
+.R_class_members_label_ready:
  xor r12d,r12d
 .R_class_output_member:
  cmp r12,[rbx+R_MEMBERCOUNT]
@@ -3403,7 +4091,7 @@ ui_render_mermaid:
 .equ .r_fence_end_len,.-.r_fence_end-1
 .r_fallback_warning: .asciz "Visual preview is not available; showing source so it remains readable and copyable."
 .equ .r_fallback_warning_len,.-.r_fallback_warning-1
-.r_limit_warning: .asciz "Native preview limit reached; complete source remains available with /copy mermaid."
+.r_limit_warning: .asciz "Preview limited to 80 source lines."
 .equ .r_limit_warning_len,.-.r_limit_warning-1
 .r_header_separator: .asciz " | "
 .equ .r_header_separator_len,.-.r_header_separator-1
@@ -3482,3 +4170,122 @@ ui_render_mermaid:
 .balign 8
 .include "ui_mermaid_palettes.inc"
 .section .note.GNU-stack,"",@progbits
+
+.section .rodata
+.r_key_4: .asciz "stateDiagram"
+.r_key_5: .asciz "erDiagram"
+.r_key_6: .asciz "gantt"
+.r_key_7: .asciz "pie"
+.r_key_8: .asciz "journey"
+.r_key_9: .asciz "mindmap"
+.r_key_10: .asciz "gitGraph"
+.r_key_11: .asciz "requirementDiagram"
+.r_gantt_skip_0: .asciz "dateFormat"
+.r_gantt_skip_1: .asciz "axisFormat"
+.r_gantt_skip_2: .asciz "tickInterval"
+.r_gantt_skip_3: .asciz "weekday"
+.r_gantt_skip_4: .asciz "excludes"
+.r_gantt_skip_5: .asciz "todayMarker"
+.r_section_key: .asciz "section "
+.equ .r_section_key_len,.-.r_section_key-1
+.r_title_key: .asciz "title "
+.equ .r_title_key_len,.-.r_title_key-1
+.r_section_label: .asciz "Section: "
+.equ .r_section_label_len,.-.r_section_label-1
+.r_title_label: .asciz "Title: "
+.equ .r_title_label_len,.-.r_title_label-1
+.r_bullet: .asciz "• "
+.equ .r_bullet_len,.-.r_bullet-1
+.r_generic_titles:
+ .quad .r_generic_title_6-.r_generic_titles,.r_generic_title_6_len
+ .quad .r_generic_title_7-.r_generic_titles,.r_generic_title_7_len
+ .quad .r_generic_title_8-.r_generic_titles,.r_generic_title_8_len
+ .quad .r_generic_title_9-.r_generic_titles,.r_generic_title_9_len
+ .quad .r_generic_title_10-.r_generic_titles,.r_generic_title_10_len
+ .quad .r_generic_title_11-.r_generic_titles,.r_generic_title_11_len
+.r_generic_title_6: .asciz "Mermaid gantt chart"
+.equ .r_generic_title_6_len,.-.r_generic_title_6-1
+.r_generic_title_7: .asciz "Mermaid pie chart"
+.equ .r_generic_title_7_len,.-.r_generic_title_7-1
+.r_generic_title_8: .asciz "Mermaid journey diagram"
+.equ .r_generic_title_8_len,.-.r_generic_title_8-1
+.r_generic_title_9: .asciz "Mermaid mindmap"
+.equ .r_generic_title_9_len,.-.r_generic_title_9-1
+.r_generic_title_10: .asciz "Mermaid git graph"
+.equ .r_generic_title_10_len,.-.r_generic_title_10-1
+.r_generic_title_11: .asciz "Mermaid requirement diagram"
+.equ .r_generic_title_11_len,.-.r_generic_title_11-1
+
+.section .rodata
+.r_state_title: .asciz "Mermaid state diagram"
+.equ .r_state_title_len,.-.r_state_title-1
+.r_state_decl_key: .asciz "state "
+.equ .r_state_decl_key_len,.-.r_state_decl_key-1
+.r_states_label: .asciz "States:"
+.equ .r_states_label_len,.-.r_states_label-1
+.r_transitions_label: .asciz "Transitions:"
+.equ .r_transitions_label_len,.-.r_transitions_label-1
+.r_transitions_none: .asciz "Transitions: none previewed"
+.equ .r_transitions_none_len,.-.r_transitions_none-1
+.r_state_arrow: .asciz " → "
+.equ .r_state_arrow_len,.-.r_state_arrow-1
+
+.section .rodata
+.r_er_title: .asciz "Mermaid ER diagram"
+.equ .r_er_title_len,.-.r_er_title-1
+.r_entities: .asciz "Entities: "
+.equ .r_entities_len,.-.r_entities-1
+.r_attributes: .asciz "Attributes:"
+.equ .r_attributes_len,.-.r_attributes-1
+.section .bss
+.r_custom_theme_reader: .skip 8
+.text
+.globl ui_mermaid_set_theme_reader
+ui_mermaid_set_theme_reader:
+ mov [rip+.r_custom_theme_reader],rdi
+ ret
+.section .note.GNU-stack,"",@progbits
+
+.section .rodata
+.r_generic_keys:
+ .quad .r_key_4-.r_generic_keys,.r_key_4_len
+ .quad .r_key_5-.r_generic_keys,.r_key_5_len
+ .quad .r_key_6-.r_generic_keys,.r_key_6_len
+ .quad .r_key_7-.r_generic_keys,.r_key_7_len
+ .quad .r_key_8-.r_generic_keys,.r_key_8_len
+ .quad .r_key_9-.r_generic_keys,.r_key_9_len
+ .quad .r_key_10-.r_generic_keys,.r_key_10_len
+ .quad .r_key_11-.r_generic_keys,.r_key_11_len
+.equ .r_key_4_len,12
+.equ .r_key_5_len,9
+.equ .r_key_6_len,5
+.equ .r_key_7_len,3
+.equ .r_key_8_len,7
+.equ .r_key_9_len,7
+.equ .r_key_10_len,8
+.equ .r_key_11_len,18
+.r_generic_warnings:
+ .quad .r_empty_warning_4-.r_generic_warnings,.r_empty_warning_4_len
+ .quad .r_empty_warning_5-.r_generic_warnings,.r_empty_warning_5_len
+ .quad .r_empty_warning_6-.r_generic_warnings,.r_empty_warning_6_len
+ .quad .r_empty_warning_7-.r_generic_warnings,.r_empty_warning_7_len
+ .quad .r_empty_warning_8-.r_generic_warnings,.r_empty_warning_8_len
+ .quad .r_empty_warning_9-.r_generic_warnings,.r_empty_warning_9_len
+ .quad .r_empty_warning_10-.r_generic_warnings,.r_empty_warning_10_len
+ .quad .r_empty_warning_11-.r_generic_warnings,.r_empty_warning_11_len
+.r_empty_warning_4: .asciz "State preview found no previewable states or transitions; showing source instead."
+.equ .r_empty_warning_4_len,.-.r_empty_warning_4-1
+.r_empty_warning_5: .asciz "ER preview found no previewable entities or relationships; showing source instead."
+.equ .r_empty_warning_5_len,.-.r_empty_warning_5-1
+.r_empty_warning_6: .asciz "Gantt preview found no previewable tasks; showing source instead."
+.equ .r_empty_warning_6_len,.-.r_empty_warning_6-1
+.r_empty_warning_7: .asciz "Pie preview found no previewable slices; showing source instead."
+.equ .r_empty_warning_7_len,.-.r_empty_warning_7-1
+.r_empty_warning_8: .asciz "Journey preview found no previewable steps; showing source instead."
+.equ .r_empty_warning_8_len,.-.r_empty_warning_8-1
+.r_empty_warning_9: .asciz "Mermaid mindmap preview found no previewable nodes; showing source instead."
+.equ .r_empty_warning_9_len,.-.r_empty_warning_9-1
+.r_empty_warning_10: .asciz "Mermaid git graph preview found no previewable nodes; showing source instead."
+.equ .r_empty_warning_10_len,.-.r_empty_warning_10-1
+.r_empty_warning_11: .asciz "Mermaid requirement diagram preview found no previewable nodes; showing source instead."
+.equ .r_empty_warning_11_len,.-.r_empty_warning_11-1

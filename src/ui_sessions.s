@@ -1,4 +1,5 @@
-# Read-only native session picker catalog. Borrowed strings last until next call.
+# Native session picker catalog and explicitly invoked session management.
+# Borrowed strings last until next catalog call.
 # Directory components and regular session files opened without following links.
 .include "abi.inc"
 .equ S_MAX,64
@@ -314,8 +315,9 @@ ui_session_catalog:
  test rax,rax
  js .Ls_message_next
  shl rax,5
- cmp qword ptr [r15+rax+T_TYPE],JT_STRING
- jne .Ls_message_next
+ call .Ls_text_content
+ test rax,rax
+ js .Ls_message_next
  lea rsi,[rip+.Ls_json]
  add rsi,[r15+rax+T_START]
  mov rdx,[r15+rax+T_LEN]
@@ -334,8 +336,9 @@ ui_session_catalog:
  test rax,rax
  js .Ls_message_next
  shl rax,5
- cmp qword ptr [r15+rax+T_TYPE],JT_STRING
- jne .Ls_message_next
+ call .Ls_text_content
+ test rax,rax
+ js .Ls_message_next
  lea rsi,[rip+.Ls_json]
  add rsi,[r15+rax+T_START]
  mov rdx,[r15+rax+T_LEN]
@@ -375,6 +378,7 @@ ui_session_catalog:
 .Ls_label_end:
  mov byte ptr [rdi],0
 .Ls_description:
+ call .Lm_catalog_title
  # Use one realtime snapshot for the whole catalog. Borrow one second when
  # nanoseconds require it, matching floor((now-mtime)/1000) in source.
  mov rdi,[rip+.Ls_now]
@@ -643,8 +647,9 @@ ui_session_preview:
  test rax,rax
  js .Lpv_next
  shl rax,5
- cmp qword ptr [r15+rax+T_TYPE],JT_STRING
- jne .Lpv_next
+ call .Ls_text_content
+ test rax,rax
+ js .Lpv_next
  mov rbp,rax
  mov rdi,[rip+.Lpv_length]
  add rdi,r14
@@ -835,3 +840,621 @@ ui_relative_time:
  pop r12
  pop rbx
  ret
+
+# Management APIs only touch files in the explicitly configured session directory.
+# Titles are JSON-string sidecars: no provider-visible message is introduced and
+# later transcript saves cannot silently discard a rename.
+.section .rodata
+.Lm_title_suffix: .asciz ".title"
+.Lm_agent_suffix: .asciz ".agent.json"
+.Lm_session_prefix: .ascii "session-"
+.Lm_json_suffix: .ascii ".json"
+.Lm_temp_prefix: .ascii ".title-"
+.Lm_hex: .ascii "0123456789abcdef"
+.section .bss
+.balign 16
+.Lm_home: .skip 4096
+.Lm_prefix: .skip 4096
+.Lm_prefixlen: .skip 8
+.Lm_allow: .skip 8
+.Lm_dir: .skip 8
+.Lm_fd: .skip 8
+.Lm_name: .skip 256
+.Lm_title_name: .skip 272
+.Lm_temp: .skip 48
+.Lm_random: .skip 16
+.Lm_stat: .skip 144
+.Lm_quoted: .skip 2048
+.Lm_title: .skip 512
+.Lm_tokens: .skip 128
+.section .text
+.global ui_session_mutations_config
+ui_session_mutations_config:
+ mov qword ptr [rip+.Lm_allow],0
+ mov qword ptr [rip+.Lm_prefixlen],0
+ test rdi,rdi
+ jz .Lm_cfg_bad
+ cmp byte ptr [rdi],47
+ jne .Lm_cfg_bad
+ mov r8,rsi
+ lea rdx,[rip+.Lm_home]
+ lea r9,[rip+.Lm_prefix]
+ xor ecx,ecx
+.Lm_cfg_copy:
+ cmp ecx,3500
+ jae .Lm_cfg_bad
+ mov al,[rdi+rcx]
+ test al,al
+ jz .Lm_cfg_done
+ cmp al,32
+ jb .Lm_cfg_bad
+ mov [rdx+rcx],al
+ mov [r9+rcx],al
+ inc ecx
+ jmp .Lm_cfg_copy
+.Lm_cfg_done:
+ mov byte ptr [rdx+rcx],0
+ lea rdi,[r9+rcx]
+ lea rsi,[rip+.Ls_suffix]
+.Lm_cfg_suffix:
+ lodsb
+ stosb
+ test al,al
+ jnz .Lm_cfg_suffix
+ sub rdi,r9
+ dec rdi
+ mov [rip+.Lm_prefixlen],rdi
+ test r8,r8
+ setnz al
+ movzx eax,al
+ mov [rip+.Lm_allow],rax
+ xor eax,eax
+ ret
+.Lm_cfg_bad:
+ mov rax,-22
+ ret
+
+# rdi absolute session path -> validated basename + opened owner regular source.
+# Caller closes .Lm_fd and .Lm_dir on all branches.
+.Lm_open:
+ mov qword ptr [rip+.Lm_dir],-1
+ mov qword ptr [rip+.Lm_fd],-1
+ cmp qword ptr [rip+.Lm_allow],0
+ je .Lm_denied
+ test rdi,rdi
+ jz .Lm_invalid
+ mov rcx,[rip+.Lm_prefixlen]
+ test rcx,rcx
+ jz .Lm_invalid
+ lea rsi,[rip+.Lm_prefix]
+.Lm_match_prefix:
+ mov al,[rdi]
+ test al,al
+ jz .Lm_invalid
+ cmp al,[rsi]
+ jne .Lm_invalid
+ inc rdi
+ inc rsi
+ dec rcx
+ jnz .Lm_match_prefix
+ mov r8,rdi
+ xor ecx,ecx
+ lea rdx,[rip+.Lm_name]
+.Lm_basename:
+ cmp ecx,240
+ jae .Lm_invalid
+ mov al,[r8+rcx]
+ test al,al
+ jz .Lm_basename_done
+ cmp al,47
+ je .Lm_invalid
+ cmp al,32
+ jb .Lm_invalid
+ cmp al,127
+ je .Lm_invalid
+ mov [rdx+rcx],al
+ inc ecx
+ jmp .Lm_basename
+.Lm_basename_done:
+ cmp ecx,13
+ jb .Lm_invalid
+ mov byte ptr [rdx+rcx],0
+ mov r9,rcx
+ lea rsi,[rip+.Lm_session_prefix]
+ mov rdi,rdx
+ mov ecx,8
+ repe cmpsb
+ jne .Lm_invalid
+ lea rdi,[rdx+r9-5]
+ lea rsi,[rip+.Lm_json_suffix]
+ mov ecx,5
+ repe cmpsb
+ jne .Lm_invalid
+ lea rsi,[rip+.Lm_name]
+ lea rdi,[rip+.Lm_title_name]
+ mov rcx,r9
+ rep movsb
+ lea rsi,[rip+.Lm_title_suffix]
+ mov ecx,7
+ rep movsb
+ mov eax,2
+ lea rdi,[rip+.Lm_home]
+ mov esi,0xb0000
+ xor edx,edx
+ syscall
+ test rax,rax
+ js .Lm_open_return
+ mov [rip+.Lm_dir],rax
+ lea rsi,[rip+.Ls_local]
+ call .Lm_component
+ test rax,rax
+ js .Lm_open_return
+ lea rsi,[rip+.Ls_state]
+ call .Lm_component
+ test rax,rax
+ js .Lm_open_return
+ lea rsi,[rip+.Ls_app]
+ call .Lm_component
+ test rax,rax
+ js .Lm_open_return
+ mov eax,257
+ mov rdi,[rip+.Lm_dir]
+ lea rsi,[rip+.Lm_name]
+ mov edx,0xa0800
+ xor r10d,r10d
+ syscall
+ test rax,rax
+ js .Lm_open_return
+ mov [rip+.Lm_fd],rax
+ mov rdi,rax
+ mov eax,5
+ lea rsi,[rip+.Lm_stat]
+ syscall
+ test rax,rax
+ js .Lm_open_return
+ mov eax,[rip+.Lm_stat+24]
+ and eax,0xf000
+ cmp eax,0x8000
+ jne .Lm_invalid
+ mov eax,107
+ syscall
+ cmp eax,[rip+.Lm_stat+28]
+ jne .Lm_denied
+ xor eax,eax
+.Lm_open_return:
+ ret
+.Lm_invalid:
+ mov rax,-22
+ ret
+.Lm_denied:
+ mov rax,-13
+ ret
+.Lm_component:
+ mov eax,257
+ mov rdi,[rip+.Lm_dir]
+ mov edx,0xb0000
+ xor r10d,r10d
+ syscall
+ test rax,rax
+ js .Lm_component_ret
+ mov r8,rax
+ mov eax,3
+ mov rdi,[rip+.Lm_dir]
+ syscall
+ mov [rip+.Lm_dir],r8
+ xor eax,eax
+.Lm_component_ret:
+ ret
+.Lm_cleanup:
+ push rax
+ mov rdi,[rip+.Lm_fd]
+ cmp rdi,0
+ jl .Lm_cleanup_dir
+ mov eax,3
+ syscall
+.Lm_cleanup_dir:
+ mov rdi,[rip+.Lm_dir]
+ cmp rdi,0
+ jl .Lm_cleanup_done
+ mov eax,3
+ syscall
+.Lm_cleanup_done:
+ pop rax
+ ret
+.global ui_session_delete
+ui_session_delete:
+ push rbx
+ call .Lm_open
+ test rax,rax
+ js .Lm_delete_done
+ # unlinkat does not follow the target; a replacement symlink is only removed.
+ mov eax,263
+ mov rdi,[rip+.Lm_dir]
+ lea rsi,[rip+.Lm_name]
+ xor edx,edx
+ syscall
+ test rax,rax
+ js .Lm_delete_done
+ mov eax,263
+ mov rdi,[rip+.Lm_dir]
+ lea rsi,[rip+.Lm_title_name]
+ xor edx,edx
+ syscall
+ cmp rax,-2
+ je .Lm_delete_agent_state
+ test rax,rax
+ js .Lm_delete_done
+.Lm_delete_agent_state:
+ # Session deletion includes native ACP continuation state introduced with the
+ # external adapter; unlink the name itself, never dereference a sidecar link.
+ lea rdi,[rip+.Lm_title_name]
+ lea rsi,[rip+.Lm_name]
+.Lm_delete_namecopy:
+ lodsb
+ test al,al
+ jz .Lm_delete_agent_suffix
+ stosb
+ jmp .Lm_delete_namecopy
+.Lm_delete_agent_suffix:
+ lea rsi,[rip+.Lm_agent_suffix]
+.Lm_delete_suffixcopy:
+ lodsb
+ stosb
+ test al,al
+ jnz .Lm_delete_suffixcopy
+ mov eax,263
+ mov rdi,[rip+.Lm_dir]
+ lea rsi,[rip+.Lm_title_name]
+ xor edx,edx
+ syscall
+ cmp rax,-2
+ je .Lm_delete_sync
+ test rax,rax
+ js .Lm_delete_done
+.Lm_delete_sync:
+ mov eax,74
+ mov rdi,[rip+.Lm_dir]
+ syscall
+.Lm_delete_done:
+ call .Lm_cleanup
+ pop rbx
+ ret
+.global ui_session_delete_many
+ui_session_delete_many:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ test rdi,rdi
+ jz .Lm_many_bad
+ test rdx,rdx
+ jz .Lm_many_bad
+ cmp rsi,64
+ ja .Lm_many_bad
+ mov r12,rdi
+ mov r13,rsi
+ mov r14,rdx
+ xor ebx,ebx
+ xor r15d,r15d
+.Lm_many_next:
+ cmp rbx,r13
+ jae .Lm_many_done
+ mov rdi,[r12+rbx*8]
+ call ui_session_delete
+ mov [r14+rbx*8],rax
+ test rax,rax
+ jne .Lm_many_advance
+ inc r15
+.Lm_many_advance:
+ inc rbx
+ jmp .Lm_many_next
+.Lm_many_done:
+ mov rax,r15
+ jmp .Lm_many_return
+.Lm_many_bad:
+ mov rax,-22
+.Lm_many_return:
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.global ui_session_rename
+ui_session_rename:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ mov r12,rdi
+ mov r13,rsi
+ mov r14,rdx
+ test rsi,rsi
+ jz .Lm_rename_bad
+ test rdx,rdx
+ jz .Lm_rename_bad
+ cmp rdx,400
+ ja .Lm_rename_bad
+ xor ecx,ecx
+.Lm_title_check:
+ cmp rcx,r14
+ jae .Lm_title_quote
+ mov al,[r13+rcx]
+ cmp al,32
+ jb .Lm_rename_bad
+ cmp al,127
+ je .Lm_rename_bad
+ inc rcx
+ jmp .Lm_title_check
+.Lm_title_quote:
+ lea rdi,[rip+.Lm_quoted]
+ mov rsi,r13
+ mov rdx,r14
+ mov ecx,2048
+ call json_quote
+ test rax,rax
+ js .Lm_rename_bad
+ mov r15,rax
+ lea rdi,[rip+.Lm_quoted]
+ mov rsi,rax
+ lea rdx,[rip+.Lm_tokens]
+ mov ecx,4
+ call json_parse
+ cmp rax,1
+ jne .Lm_rename_bad
+ mov rdi,r12
+ call .Lm_open
+ test rax,rax
+ js .Lm_rename_done
+ # Unique private sidecar temp, no arbitrary old-file truncation.
+ mov eax,318
+ lea rdi,[rip+.Lm_random]
+ mov esi,16
+ xor edx,edx
+ syscall
+ cmp rax,16
+ jne .Lm_rename_io
+ lea rdi,[rip+.Lm_temp]
+ lea rsi,[rip+.Lm_temp_prefix]
+ mov ecx,7
+ rep movsb
+ lea rsi,[rip+.Lm_random]
+ lea r8,[rip+.Lm_hex]
+ mov ecx,16
+.Lm_hex_loop:
+ lodsb
+ movzx edx,al
+ shr edx,4
+ mov dl,[r8+rdx]
+ mov [rdi],dl
+ inc rdi
+ and eax,15
+ mov al,[r8+rax]
+ stosb
+ loop .Lm_hex_loop
+ mov byte ptr [rdi],0
+ mov eax,257
+ mov rdi,[rip+.Lm_dir]
+ lea rsi,[rip+.Lm_temp]
+ mov edx,0xa00c1
+ mov r10d,384
+ syscall
+ test rax,rax
+ js .Lm_rename_done
+ mov rbx,rax
+ mov eax,91
+ mov rdi,rbx
+ mov esi,384
+ syscall
+ test rax,rax
+ js .Lm_temp_error
+ xor r13d,r13d
+.Lm_write:
+ mov eax,1
+ mov rdi,rbx
+ lea rsi,[rip+.Lm_quoted]
+ add rsi,r13
+ mov rdx,r15
+ sub rdx,r13
+ syscall
+ cmp rax,-4
+ je .Lm_write
+ test rax,rax
+ jle .Lm_temp_io
+ add r13,rax
+ cmp r13,r15
+ jb .Lm_write
+ mov eax,74
+ mov rdi,rbx
+ syscall
+ test rax,rax
+ js .Lm_temp_error
+ mov eax,3
+ mov rdi,rbx
+ syscall
+ mov rbx,-1
+ mov eax,264
+ mov rdi,[rip+.Lm_dir]
+ lea rsi,[rip+.Lm_temp]
+ mov rdx,rdi
+ lea r10,[rip+.Lm_title_name]
+ syscall
+ test rax,rax
+ js .Lm_temp_error
+ mov eax,74
+ mov rdi,[rip+.Lm_dir]
+ syscall
+ jmp .Lm_rename_done
+.Lm_temp_io:
+ mov rax,-5
+.Lm_temp_error:
+ mov r12,rax
+ cmp rbx,0
+ jl .Lm_temp_unlink
+ mov eax,3
+ mov rdi,rbx
+ syscall
+.Lm_temp_unlink:
+ mov eax,263
+ mov rdi,[rip+.Lm_dir]
+ lea rsi,[rip+.Lm_temp]
+ xor edx,edx
+ syscall
+ mov rax,r12
+ jmp .Lm_rename_done
+.Lm_rename_io:
+ mov rax,-5
+.Lm_rename_done:
+ call .Lm_cleanup
+ jmp .Lm_rename_return
+.Lm_rename_bad:
+ mov rax,-22
+.Lm_rename_return:
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+
+# Catalog title lookup uses its already safely opened directory. Untrusted,
+# oversized, non-regular or malformed sidecars never hide a valid session.
+.Lm_catalog_title:
+ push rbx
+ push r13
+ push r14
+ sub rsp,16
+ lea rdi,[rip+.Lm_title_name]
+ mov rsi,[rip+.Ls_name]
+ xor ecx,ecx
+.Lm_cat_name:
+ mov al,[rsi+rcx]
+ test al,al
+ jz .Lm_cat_suffix
+ cmp ecx,240
+ jae .Lm_cat_done
+ mov [rdi+rcx],al
+ inc ecx
+ jmp .Lm_cat_name
+.Lm_cat_suffix:
+ add rdi,rcx
+ lea rsi,[rip+.Lm_title_suffix]
+ mov ecx,7
+ rep movsb
+ mov eax,257
+ mov rdi,[rip+.Ls_dir]
+ lea rsi,[rip+.Lm_title_name]
+ mov edx,0xa0800
+ xor r10d,r10d
+ syscall
+ test rax,rax
+ js .Lm_cat_done
+ mov rbx,rax
+ mov eax,5
+ mov rdi,rbx
+ lea rsi,[rip+.Lm_stat]
+ syscall
+ test rax,rax
+ js .Lm_cat_close
+ mov eax,[rip+.Lm_stat+24]
+ and eax,0xf000
+ cmp eax,0x8000
+ jne .Lm_cat_close
+ mov eax,107
+ syscall
+ cmp eax,[rip+.Lm_stat+28]
+ jne .Lm_cat_close
+ cmp qword ptr [rip+.Lm_stat+48],2047
+ ja .Lm_cat_close
+ xor eax,eax
+ mov rdi,rbx
+ lea rsi,[rip+.Lm_quoted]
+ mov edx,2048
+ syscall
+ test rax,rax
+ jle .Lm_cat_close
+ mov r13,rax
+ lea rdi,[rip+.Lm_quoted]
+ mov rsi,rax
+ lea rdx,[rip+.Lm_tokens]
+ mov ecx,4
+ call json_parse
+ cmp rax,1
+ jne .Lm_cat_close
+ cmp qword ptr [rip+.Lm_tokens+T_TYPE],JT_STRING
+ jne .Lm_cat_close
+ lea rdi,[rip+.Lm_title]
+ lea rsi,[rip+.Lm_quoted]
+ add rsi,[rip+.Lm_tokens+T_START]
+ mov rdx,[rip+.Lm_tokens+T_LEN]
+ mov ecx,401
+ call json_decode
+ test rax,rax
+ jle .Lm_cat_close
+ cmp rax,400
+ ja .Lm_cat_close
+ mov r14,rax
+ xor ecx,ecx
+ lea rsi,[rip+.Lm_title]
+.Lm_cat_validate:
+ cmp rcx,r14
+ jae .Lm_cat_copy
+ mov al,[rsi+rcx]
+ cmp al,32
+ jb .Lm_cat_close
+ cmp al,127
+ je .Lm_cat_close
+ inc rcx
+ jmp .Lm_cat_validate
+.Lm_cat_copy:
+ mov rdi,r12
+ mov rcx,r14
+ rep movsb
+ mov byte ptr [rdi],0
+.Lm_cat_close:
+ mov eax,3
+ mov rdi,rbx
+ syscall
+.Lm_cat_done:
+ add rsp,16
+ pop r14
+ pop r13
+ pop rbx
+ ret
+
+# Accept legacy string or first OpenAI text part; never expose image/data parts.
+# Input token byte offset in RAX, tokens base R15. Output text offset/-1.
+.Ls_text_content:
+ cmp qword ptr [r15+rax+T_TYPE],JT_STRING
+ je .Ls_text_ret
+ cmp qword ptr [r15+rax+T_TYPE],JT_ARRAY
+ jne .Ls_text_missing
+ mov rdx,rax
+ shr rdx,5
+ inc rdx
+ cmp rdx,[r15+rax+T_END]
+ jae .Ls_text_missing
+ mov rax,rdx
+ shl rax,5
+ cmp qword ptr [r15+rax+T_TYPE],JT_OBJECT
+ jne .Ls_text_missing
+ sub rsp,8
+ lea rdi,[rip+.Ls_json]
+ mov rsi,r15
+ lea rcx,[rip+.Ls_text_key]
+ call json_find
+ add rsp,8
+ test rax,rax
+ js .Ls_text_missing
+ shl rax,5
+ cmp qword ptr [r15+rax+T_TYPE],JT_STRING
+ jne .Ls_text_missing
+.Ls_text_ret:
+ ret
+.Ls_text_missing:
+ mov rax,-1
+ ret
+.section .rodata
+.Ls_text_key: .asciz "text"

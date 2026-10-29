@@ -18,13 +18,13 @@
 [38;2;203;166;247m  > [39mUI_CASE_TOOL                                                                                   [38;2;108;112;134m█
 [38;2;249;226;175m  ? [1m[39mWriteFile[0m[38;2;108;112;134m Writing to capture.txt ←[39m                                                             [38;2;108;112;134m█
 [39m                                                                                                   [38;2;108;112;134m█
-[39m   1 A visible edit preview                                                                        [38;2;108;112;134m█
+[39m  [38;2;61;65;73m 1 [38;2;191;189;182mA visible edit preview[39m                                                                        [38;2;108;112;134m█
 [39m                                                                                                   [38;2;108;112;134m█
-[39m   Apply this change?                                                                              [38;2;108;112;134m█
+[39m  [38;2;191;189;182m Apply this change?[39m                                                                              [38;2;108;112;134m█
 [39m                                                                                                   [38;2;108;112;134m█
 [38;2;166;227;161m   › 1. Yes, allow once[39m                                                                            [38;2;108;112;134m█
      2. Yes, allow always[39m                                                                          [38;2;108;112;134m█
      3. No, suggest changes (esc)[39m                                                                  [38;2;108;112;134m█
 [39m                                                                                                   [38;2;108;112;134m█
 
-  ⠼ Waiting for user confirmation...[39m
+  ⠦ Waiting for user confirmation...[39m

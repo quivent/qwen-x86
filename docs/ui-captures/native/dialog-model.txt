@@ -1,5 +1,5 @@
   ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ │
-  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-1ew41g0c/workspace           │ │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
    ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
                                                                                                    █
   Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           █
@@ -8,12 +8,12 @@
   │ Select Model                                                                                 │
   │                                                                                              │
   │ › 1. [openai] bench-model (Runtime)                                                          │
-  │      Runtime model                                                                           │
+  │      Model availability depends on your configured provider. Use /model NAME for a cu        │
   │                                                                                              │
   │ ──────────────────────────────────────────────────────────────────────────────────────────── │
   │ Modality:       text-only                                                                    │
   │ Context Window: (unknown)                                                                    │
-  │ Base URL:       http://127.0.0.1:33293/v1                                                    │
+  │ Base URL:       http://127.0.0.1:37835/v1                                                    │
   │ API Key:        (configured)                                                                 │
   │                                                                                              │
   │ Enter to select, ↑↓ to navigate, type to search, Esc to close                                │

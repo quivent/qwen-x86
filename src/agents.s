@@ -2,7 +2,10 @@
 # Fixed descriptor rows describe worker state.
 .include "abi.inc"
 .equ A_SLOTS,8
-.equ A_SIZE,69856
+.equ A_SIZE,70000
+.equ A_TYPE,69864
+.equ A_APPROVAL,69848
+.equ A_POLICY,69856
 .equ A_ID,0
 .equ A_PID,8
 .equ A_FD,16
@@ -34,8 +37,18 @@ a_k_prompt: .asciz "prompt"
 a_k_id: .asciz "id"
 a_k_timeout: .asciz "timeout_seconds"
 a_k_mode: .asciz "mode"
+a_k_type: .asciz "agent_type"
+a_k_subtype: .asciz "subagent_type"
+a_general_type: .asciz "general-purpose"
+a_statusline_type: .asciz "statusline-setup"
+a_explore_type: .asciz "Explore"
+a_review_type: .asciz "review-agent"
+a_codex_type: .asciz "codex"
+a_e_oneshot: .asciz "Error: Codex agents are one-shot; start a new agent instead of sending messages or resuming."
 a_k_message: .asciz "message"
 a_readonly: .asciz "read-only"
+a_inherit: .asciz "inherit"
+a_write: .asciz "write"
 a_disabled: .asciz "disabled"
 a_devnull: .asciz "/dev/null"
 a_metadata_prefix: .ascii "@session:"
@@ -45,7 +58,7 @@ a_st_cancelled: .asciz "cancelled"
 a_st_failed: .asciz "failed"
 a_statuses: .long a_st_running-a_statuses,a_st_done-a_statuses,a_st_cancelled-a_statuses,a_st_failed-a_statuses
 a_e_args: .asciz "Error: invalid subagent arguments."
-a_e_mode: .asciz "Error: native subagents are read-only; write mode is unsupported."
+a_e_mode: .asciz "Error: mode must be read-only, inherit, or write."
 a_e_limit: .asciz "Error: concurrent subagent limit reached; wait for an agent before spawning more."
 a_e_closed: .asciz "Error: subagent manager is unavailable or closed (recursive delegation is disabled)."
 a_e_unknown: .asciz "Error: unknown subagent ID or tool name."
@@ -94,6 +107,14 @@ a_prompt: .skip 65537
 a_child_name: .skip 128
 a_child_resume: .skip 4096
 a_mode: .skip 32
+a_child_policy: .skip 8
+a_child_type: .skip 128
+a_approval_callback: .skip 8
+a_approval_busy: .skip 8
+a_approval_pair: .skip 8
+a_child_approval_fd: .skip 8
+a_approval_packet: .skip 131232
+a_approval_reply: .skip 8
 a_pipe: .skip 8
 a_parent_pid: .skip 8
 a_readbuf: .skip 8192
@@ -129,6 +150,8 @@ agents_init:
  call agents_close
  call a_reset_rows
 .Linit_bind:
+ call a_reset_rows
+ mov QWORD PTR [rip+a_child_approval_fd],-1
  mov QWORD PTR [rip+a_initialized],1
  mov rsi,r12
  mov QWORD PTR [rip+a_entry],rbx
@@ -154,6 +177,8 @@ a_reset_rows:
  mov QWORD PTR [rdi+A_ID],0
  mov QWORD PTR [rdi+A_PID],0
  mov QWORD PTR [rdi+A_FD],-1
+ mov QWORD PTR [rdi+A_APPROVAL],-1
+ mov QWORD PTR [rdi+A_POLICY],0
  mov QWORD PTR [rdi+A_STATUS],0
  mov QWORD PTR [rdi+A_REAPED],1
  add rdi,A_SIZE
@@ -415,7 +440,8 @@ a_spawn:
  call a_string
  test rax,rax
  jle .Lspawn_args
- # Explicit write requests fail, even when the parent uses --yes.
+ mov QWORD PTR [rip+a_child_policy],0
+ # Inherited workers use a parent-owned per-action approval broker.
  mov rdi,QWORD PTR [rip+a_args]
  lea rsi,[rip+a_tokens]
  xor edx,edx
@@ -433,8 +459,57 @@ a_spawn:
  lea rsi,[rip+a_readonly]
  call a_equal
  test eax,eax
+ jnz .Lspawn_capacity
+ lea rdi,[rip+a_mode]
+ lea rsi,[rip+a_inherit]
+ call a_equal
+ test eax,eax
+ jnz .Lspawn_inherited
+ lea rdi,[rip+a_mode]
+ lea rsi,[rip+a_write]
+ call a_equal
+ test eax,eax
  jz .Lspawn_mode
+.Lspawn_inherited:
+ mov QWORD PTR [rip+a_child_policy],1
 .Lspawn_capacity:
+ mov BYTE PTR [rip+a_child_type],0
+ mov rdi,QWORD PTR [rip+a_args]
+ lea rsi,[rip+a_tokens]
+ xor edx,edx
+ lea rcx,[rip+a_k_type]
+ call json_find@PLT
+ test rax,rax
+ js .Lspawn_try_subtype
+ lea rdi,[rip+a_k_type]
+ jmp .Lspawn_decode_type
+.Lspawn_try_subtype:
+ mov rdi,QWORD PTR [rip+a_args]
+ lea rsi,[rip+a_tokens]
+ xor edx,edx
+ lea rcx,[rip+a_k_subtype]
+ call json_find@PLT
+ test rax,rax
+ js .Lspawn_type_ready
+ lea rdi,[rip+a_k_subtype]
+.Lspawn_decode_type:
+ lea rsi,[rip+a_child_type]
+ mov edx,128
+ call a_string
+ test rax,rax
+ jle .Lspawn_args
+ # Explicit named general/statusline agents inherit policy. Explore
+ # never acquires mutation privileges through a conflicting mode parameter.
+ lea rdi,[rip+a_child_type]
+ lea rsi,[rip+a_explore_type]
+ call a_equal
+ test eax,eax
+ jnz .Lspawn_force_readonly
+ mov QWORD PTR [rip+a_child_policy],1
+ jmp .Lspawn_type_ready
+.Lspawn_force_readonly:
+ mov QWORD PTR [rip+a_child_policy],0
+.Lspawn_type_ready:
  call a_running_count
  cmp rax,QWORD PTR [rip+a_max]
  jae .Lspawn_limit
@@ -470,6 +545,11 @@ a_spawn:
 .Lspawn_selected:
  mov rdi,r12
  call a_clear_job
+ mov rax,QWORD PTR [rip+a_child_policy]
+ mov QWORD PTR [r12+A_POLICY],rax
+ lea rdi,[r12+A_TYPE]
+ lea rsi,[rip+a_child_type]
+ call a_copy_z
  mov rax,QWORD PTR [rip+a_next_id]
  mov QWORD PTR [r12+A_ID],rax
  inc QWORD PTR [rip+a_next_id]
@@ -506,6 +586,15 @@ a_spawn:
  ret
 
 a_clear_job:
+ mov r8,rdi
+ mov rdi,QWORD PTR [r8+A_APPROVAL]
+ cmp rdi,0
+ jl .Lclear_approval_done
+ mov eax,3
+ syscall
+.Lclear_approval_done:
+ mov rdi,r8
+ mov QWORD PTR [rdi+A_APPROVAL],-1
  mov QWORD PTR [rdi+A_PID],0
  mov QWORD PTR [rdi+A_FD],-1
  mov QWORD PTR [rdi+A_STATUS],0
@@ -561,20 +650,40 @@ a_launch:
  mov eax,39
  syscall
  mov QWORD PTR [rip+a_parent_pid],rax
+ mov QWORD PTR [rip+a_approval_pair],-1
+ cmp QWORD PTR [r12+A_POLICY],0
+ je .Llaunch_pipe
+ mov eax,53
+ mov edi,1
+ mov esi,0x80805
+ xor edx,edx
+ lea r10,[rip+a_approval_pair]
+ syscall
+ test rax,rax
+ js .Llaunch_failed
+.Llaunch_pipe:
  lea rdi,[rip+a_pipe]
  mov esi,0x80800
  mov eax,293
  syscall
  test rax,rax
- js .Llaunch_failed
+ js .Llaunch_pair_failed
  mov eax,57
  syscall
  test rax,rax
  jz .Llaunch_child
  js .Llaunch_close_failed
  mov rbx,rax
- mov rdi,rax
- mov rsi,rax
+ mov edi,DWORD PTR [rip+a_approval_pair+4]
+ cmp edi,0
+ jl .Llaunch_no_child_broker
+ mov eax,3
+ syscall
+.Llaunch_no_child_broker:
+ movsxd rax,DWORD PTR [rip+a_approval_pair]
+ mov QWORD PTR [r12+A_APPROVAL],rax
+ mov rdi,rbx
+ mov rsi,rbx
  mov eax,109
  syscall
  mov edi,DWORD PTR [rip+a_pipe+4]
@@ -594,6 +703,18 @@ a_launch:
  mov edi,DWORD PTR [rip+a_pipe+4]
  mov eax,3
  syscall
+.Llaunch_pair_failed:
+ mov edi,DWORD PTR [rip+a_approval_pair]
+ cmp edi,0
+ jl .Llaunch_pair_right
+ mov eax,3
+ syscall
+.Llaunch_pair_right:
+ mov edi,DWORD PTR [rip+a_approval_pair+4]
+ cmp edi,0
+ jl .Llaunch_failed
+ mov eax,3
+ syscall
 .Llaunch_failed:
  mov QWORD PTR [r12+A_STATUS],A_FAILED
  mov rax,-1
@@ -604,6 +725,26 @@ a_launch:
  ret
 .Llaunch_child:
  mov r13,QWORD PTR [rip+a_entry]
+ mov rax,QWORD PTR [r12+A_POLICY]
+ mov QWORD PTR [rip+a_child_policy],rax
+ lea rdi,[rip+a_child_type]
+ lea rsi,[r12+A_TYPE]
+ call a_copy_z
+ mov edi,DWORD PTR [rip+a_approval_pair]
+ cmp edi,0
+ jl .Lchild_broker_ready
+ mov eax,3
+ syscall
+.Lchild_broker_ready:
+ movsxd rdi,DWORD PTR [rip+a_approval_pair+4]
+ mov QWORD PTR [rip+a_child_approval_fd],rdi
+ cmp rdi,0
+ jl .Lchild_broker_bound
+ mov eax,72
+ mov esi,4
+ xor edx,edx
+ syscall
+.Lchild_broker_bound:
  # Bind kernel parent-death cleanup before any worker I/O or callback.
  mov edi,1
  mov esi,9
@@ -632,6 +773,12 @@ a_launch:
  mov eax,3
  syscall
 .Lchild_next_row:
+ mov rdi,QWORD PTR [rbx+A_APPROVAL]
+ cmp rdi,0
+ jl .Lchild_next_broker
+ mov eax,3
+ syscall
+.Lchild_next_broker:
  add rbx,A_SIZE
  dec r12d
  jnz .Lchild_close_rows
@@ -685,6 +832,8 @@ a_launch:
  lea rsi,[rip+a_child_resume]
 .Lchild_callback:
  lea rdx,[rip+a_child_name]
+ mov rcx,QWORD PTR [rip+a_child_policy]
+ lea r8,[rip+a_child_type]
  call r13
 .Lchild_exit_error:
  mov edi,1
@@ -696,6 +845,7 @@ a_pump_all:
  push rbx
  push r12
  sub rsp,8
+ call agents_service_approvals
  lea r12,[rip+a_jobs]
  mov ebx,A_SLOTS
 .Lpump_row:
@@ -761,6 +911,14 @@ a_collect:
  cmp rax,QWORD PTR [r12+A_PID]
  jne .Lcollect_done
  mov QWORD PTR [r12+A_REAPED],1
+ # A finished worker may have used an external native/CLI executor. Kill any
+ # remaining members of its owned group before final drain; they cannot become
+ # detached or hold the report pipe after the worker has finished.
+ mov rdi,QWORD PTR [r12+A_PID]
+ neg rdi
+ mov esi,9
+ mov eax,62
+ syscall
  # Once reaped no worker can add bytes; drain before classifying metadata.
  cmp QWORD PTR [r12+A_FD],0
  jge .Lcollect_read
@@ -1249,6 +1407,11 @@ a_message:
  test rax,rax
  jz .Lmessage_unknown
  mov r12,rax
+ lea rdi,[r12+A_TYPE]
+ lea rsi,[rip+a_codex_type]
+ call a_equal
+ test eax,eax
+ jnz .Lmessage_oneshot
  cmp QWORD PTR [r12+A_REAPED],0
  je .Lmessage_running
  cmp QWORD PTR [r12+A_META],1
@@ -1277,6 +1440,9 @@ a_message:
  mov rdi,r12
  call a_snapshot
  jmp .Lmessage_done
+.Lmessage_oneshot:
+ lea rdi,[rip+a_e_oneshot]
+ jmp .Lmessage_error
 .Lmessage_unknown:
  lea rdi,[rip+a_e_unknown]
  jmp .Lmessage_error
@@ -1311,7 +1477,7 @@ agents_close:
  mov ebx,A_SLOTS
 .Lclose_row:
  cmp QWORD PTR [r12+A_ID],0
- je .Lclose_next
+ je .Lclose_broker_done
  mov rdi,r12
  call a_cancel_job
  mov rdi,QWORD PTR [r12+A_FD]
@@ -1321,6 +1487,13 @@ agents_close:
  syscall
  mov QWORD PTR [r12+A_FD],-1
 .Lclose_next:
+ mov rdi,QWORD PTR [r12+A_APPROVAL]
+ cmp rdi,0
+ jl .Lclose_broker_done
+ mov eax,3
+ syscall
+ mov QWORD PTR [r12+A_APPROVAL],-1
+.Lclose_broker_done:
  add r12,A_SIZE
  dec ebx
  jnz .Lclose_row
@@ -1330,3 +1503,200 @@ agents_close:
  ret
 
 .section .note.GNU-stack,"",@progbits
+
+.section .text
+.global agents_set_approval,agents_service_approvals,agents_request_approval
+agents_set_approval:
+ mov [rip+a_approval_callback],rdi
+ xor eax,eax
+ ret
+# Parent services bounded SOCK_SEQPACKET requests, never worker code callbacks.
+# callback(previewZ,toolNameZ,argsPtr,argsLen)->0deny/1allow. Guard nested UI ticks.
+agents_service_approvals:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ cmp QWORD PTR [rip+a_approval_busy],0
+ jne .Lapproval_service_zero
+ mov QWORD PTR [rip+a_approval_busy],1
+ xor r15d,r15d
+ lea r12,[rip+a_jobs]
+ mov r13d,A_SLOTS
+.Lapproval_service_row:
+ cmp QWORD PTR [r12+A_ID],0
+ je .Lapproval_service_next
+ mov rdi,[r12+A_APPROVAL]
+ cmp rdi,0
+ jl .Lapproval_service_next
+ mov eax,45
+ lea rsi,[rip+a_approval_packet]
+ mov edx,131232
+ mov r10d,0x60 # DONTWAIT|TRUNC: oversize packets are denied, never truncated grants
+ xor r8d,r8d
+ xor r9d,r9d
+ syscall
+ cmp rax,-4
+ je .Lapproval_service_row
+ cmp rax,-11
+ je .Lapproval_service_next
+ test rax,rax
+ jle .Lapproval_service_close
+ mov r14,rax
+ xor ebx,ebx
+ cmp rax,131232
+ ja .Lapproval_service_reply
+ cmp rax,26
+ jb .Lapproval_service_reply
+ lea rax,[rip+a_approval_packet]
+ mov rcx,[rax]
+ cmp rcx,65535
+ ja .Lapproval_service_reply
+ mov rdx,[rax+8]
+ cmp rdx,127
+ ja .Lapproval_service_reply
+ mov r8,[rax+16]
+ cmp r8,65535
+ ja .Lapproval_service_reply
+ lea r9,[rcx+rdx+26]
+ add r9,r8
+ cmp r9,r14
+ jne .Lapproval_service_reply
+ lea rdi,[rax+24]
+ cmp BYTE PTR [rdi+rcx],0
+ jne .Lapproval_service_reply
+ lea rsi,[rdi+rcx+1]
+ cmp BYTE PTR [rsi+rdx],0
+ jne .Lapproval_service_reply
+ lea rdx,[rsi+rdx+1]
+ mov rcx,r8
+ mov rax,[rip+a_approval_callback]
+ test rax,rax
+ jz .Lapproval_service_reply
+ call rax
+ cmp eax,1
+ sete bl
+.Lapproval_service_reply:
+ mov [rip+a_approval_reply],bl
+ mov eax,44
+ mov rdi,[r12+A_APPROVAL]
+ lea rsi,[rip+a_approval_reply]
+ mov edx,1
+ mov r10d,0x4040 # NOSIGNAL|DONTWAIT
+ xor r8d,r8d
+ xor r9d,r9d
+ syscall
+ inc r15
+ jmp .Lapproval_service_next
+.Lapproval_service_close:
+ mov eax,3
+ mov rdi,[r12+A_APPROVAL]
+ syscall
+ mov QWORD PTR [r12+A_APPROVAL],-1
+.Lapproval_service_next:
+ add r12,A_SIZE
+ dec r13d
+ jnz .Lapproval_service_row
+ mov QWORD PTR [rip+a_approval_busy],0
+ mov rax,r15
+ jmp .Lapproval_service_done
+.Lapproval_service_zero:
+ xor eax,eax
+.Lapproval_service_done:
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+# Child only, blocks until parent policy answer. EOF/oversize/any error deny.
+# previewZ,toolNameZ,argsPtr,argsLen ->1allowed/0denied.
+agents_request_approval:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ mov r12,rdi
+ mov r13,rsi
+ mov r14,rdx
+ mov r15,rcx
+ cmp QWORD PTR [rip+a_child_approval_fd],0
+ jl .Lapproval_request_deny
+ test rdi,rdi
+ jz .Lapproval_request_deny
+ test rsi,rsi
+ jz .Lapproval_request_deny
+ cmp rcx,65535
+ ja .Lapproval_request_deny
+ test rdx,rdx
+ jz .Lapproval_request_deny
+ xor ebx,ebx
+.Lapproval_preview_len:
+ cmp ebx,65535
+ jae .Lapproval_request_deny
+ cmp BYTE PTR [r12+rbx],0
+ je .Lapproval_preview_done
+ inc ebx
+ jmp .Lapproval_preview_len
+.Lapproval_preview_done:
+ xor ecx,ecx
+.Lapproval_name_len:
+ cmp ecx,127
+ jae .Lapproval_request_deny
+ cmp BYTE PTR [r13+rcx],0
+ je .Lapproval_name_done
+ inc ecx
+ jmp .Lapproval_name_len
+.Lapproval_name_done:
+ lea rdi,[rip+a_approval_packet]
+ mov [rdi],rbx
+ mov [rdi+8],rcx
+ mov [rdi+16],r15
+ mov r8,rcx
+ add rdi,24
+ mov rsi,r12
+ lea rcx,[rbx+1]
+ rep movsb
+ mov rsi,r13
+ lea rcx,[r8+1]
+ rep movsb
+ mov rsi,r14
+ mov rcx,r15
+ rep movsb
+ lea rsi,[rip+a_approval_packet]
+ mov rdx,rdi
+ sub rdx,rsi
+ mov r14,rdx
+ mov eax,44
+ mov rdi,[rip+a_child_approval_fd]
+ mov r10d,0x4000
+ xor r8d,r8d
+ xor r9d,r9d
+ syscall
+ cmp rax,r14
+ jne .Lapproval_request_deny
+.Lapproval_read_reply:
+ xor eax,eax
+ mov rdi,[rip+a_child_approval_fd]
+ lea rsi,[rip+a_approval_reply]
+ mov edx,1
+ syscall
+ cmp rax,-4
+ je .Lapproval_read_reply
+ cmp rax,1
+ jne .Lapproval_request_deny
+ xor eax,eax
+ cmp BYTE PTR [rip+a_approval_reply],1
+ sete al
+ jmp .Lapproval_request_done
+.Lapproval_request_deny:
+ xor eax,eax
+.Lapproval_request_done:
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret

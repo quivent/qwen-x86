@@ -8,7 +8,7 @@ class EditorTests(unittest.TestCase):
   subprocess.run(['as','--64','-I',str(ROOT/'src'),str(ROOT/'src/ui_input.s'),'-o',str(out/'input.o')],check=True)
   subprocess.run(['ld','-shared',str(out/'input.o'),'-o',str(out/'input.so')],check=True)
   cls.lib=C.CDLL(str(out/'input.so'))
-  for name,args in {'input_init':[C.c_void_p,C.c_void_p,C.c_size_t],'input_begin':[C.c_void_p,C.c_void_p,C.c_size_t],'input_feed':[C.c_void_p,C.c_void_p,C.c_size_t],'input_osc11_snapshot':[C.c_void_p,C.c_void_p],'input_mouse_snapshot':[C.c_void_p,C.c_void_p],'input_snapshot':[C.c_void_p,C.c_void_p],'input_history_add':[C.c_void_p,C.c_void_p,C.c_size_t],'input_resize':[C.c_void_p,C.c_size_t,C.c_size_t],'input_consumed':[C.c_void_p],'input_timeout':[C.c_void_p],'input_set_external_history':[C.c_void_p,C.c_size_t],'input_set_completion':[C.c_void_p,C.c_size_t],'input_replace':[C.c_void_p,C.c_size_t,C.c_size_t,C.c_void_p,C.c_size_t],'ui_next_grapheme':[C.c_void_p,C.c_size_t,C.c_size_t],'ui_text_width':[C.c_void_p,C.c_size_t]}.items():
+  for name,args in {'ui_complex_boundaries':[C.c_void_p,C.c_size_t,C.c_size_t,C.c_void_p,C.c_size_t],'ui_cjk_boundaries':[C.c_void_p,C.c_size_t,C.c_void_p,C.c_size_t],'ui_word_boundaries':[C.c_void_p,C.c_size_t,C.c_void_p,C.c_size_t],'input_pointer':[C.c_void_p,C.c_size_t,C.c_size_t,C.c_size_t],'input_selection':[C.c_void_p,C.c_void_p],'input_select_word':[C.c_void_p],'input_select_line':[C.c_void_p],'input_init':[C.c_void_p,C.c_void_p,C.c_size_t],'input_begin':[C.c_void_p,C.c_void_p,C.c_size_t],'input_feed':[C.c_void_p,C.c_void_p,C.c_size_t],'input_osc11_snapshot':[C.c_void_p,C.c_void_p],'input_mouse_snapshot':[C.c_void_p,C.c_void_p],'ui_decode_mouse':[C.c_void_p,C.c_size_t,C.c_void_p],'input_snapshot':[C.c_void_p,C.c_void_p],'input_history_add':[C.c_void_p,C.c_void_p,C.c_size_t],'input_resize':[C.c_void_p,C.c_size_t,C.c_size_t],'input_consumed':[C.c_void_p],'input_timeout':[C.c_void_p],'input_set_external_history':[C.c_void_p,C.c_size_t],'input_set_completion':[C.c_void_p,C.c_size_t],'input_replace':[C.c_void_p,C.c_size_t,C.c_size_t,C.c_void_p,C.c_size_t],'ui_next_grapheme':[C.c_void_p,C.c_size_t,C.c_size_t],'ui_text_width':[C.c_void_p,C.c_size_t]}.items():
    fn=getattr(cls.lib,name);fn.argtypes=args;fn.restype=C.c_int64
  @classmethod
  def tearDownClass(cls):cls.tmp.cleanup()
@@ -118,9 +118,28 @@ class EditorTests(unittest.TestCase):
   self.assertEqual(self.lib.input_consumed(self.ctx),10);self.assertEqual(self.snap()[0],'draft')
   self.assertEqual(self.feed(b'\x1b[<64;1;2m'),0)
   self.lib.input_mouse_snapshot(self.ctx,data);self.assertEqual(list(data),[64,1,2,1])
-  for packet in [b'\x1b[<0;1;2M',b'\x1b[<32;1;2M',b'\x1b[<64;0;2M',b'\x1b[<64;;2M',b'\x1b[<64;1;9999999999M',b'\x1b[<'+b'1'*150+b';1;2M']:
+  for packet in [b'\x1b[<64;0;2M',b'\x1b[<64;;2M',b'\x1b[<64;1;9999999999M',b'\x1b[<'+b'1'*150+b';1;2M']:
    self.assertEqual(self.feed(packet),0,packet)
   self.assertEqual(self.snap()[0],'draft')
+ def test_pointer_visual_wrap_selection_raw_and_multiclick_helpers(self):
+  self.begin('ab世界cd\nsecond word');self.lib.input_resize(self.ctx,6,24)
+  self.assertEqual(self.lib.input_pointer(self.ctx,0,3,0),1);self.assertEqual(self.snap()[1],2)
+  self.lib.input_pointer(self.ctx,1,2,1);self.assertEqual(self.snap()[1],10)
+  selection=(C.c_uint64*2)();self.assertEqual(self.lib.input_selection(self.ctx,selection),1);self.assertEqual(C.string_at(selection[0],selection[1]).decode(),'世界cd')
+  self.lib.input_pointer(self.ctx,2,3,0);self.assertEqual(self.lib.input_selection(self.ctx,selection),0)
+  self.begin('one two three');self.lib.input_resize(self.ctx,80,24);self.lib.input_pointer(self.ctx,0,5,0);self.lib.input_select_word(self.ctx)
+  self.assertEqual(self.lib.input_selection(self.ctx,selection),1);self.assertEqual(C.string_at(selection[0],selection[1]),b'two')
+  self.lib.input_select_line(self.ctx);self.assertEqual(self.lib.input_selection(self.ctx,selection),1);self.assertEqual(C.string_at(selection[0],selection[1]),b'one two three')
+  self.lib.input_pointer(self.ctx,999,999,0);self.assertEqual(self.snap()[1],13)
+ def test_nonwheel_mouse_events_and_stateless_dialog_decoder(self):
+  self.begin('draft');out=(C.c_uint64*4)()
+  for packet,values in [(b'\x1b[<0;12;3M',[0,12,3,0]),(b'\x1b[<32;14;4M',[32,14,4,0]),(b'\x1b[<0;14;4m',[0,14,4,1]),(b'\x1b[<2;9;8M',[2,9,8,0]),(b'\x1b[<35;65535;65535M',[35,65535,65535,0])]:
+   self.assertEqual(self.feed(packet+b'tail'),2147483648);self.assertEqual(self.lib.input_consumed(self.ctx),len(packet));self.assertEqual(self.snap()[0],'draft')
+   self.lib.input_mouse_snapshot(self.ctx,out);self.assertEqual(list(out),values)
+   self.assertEqual(self.lib.ui_decode_mouse(packet,len(packet),out),0);self.assertEqual(list(out),values)
+  self.assertEqual(self.feed(b'\x1b[<68;1;2M'),33554432);self.assertEqual(self.feed(b'\x1b[<81;1;2M'),67108864)
+  for packet in [b'',b'\x1b[<0;0;1M',b'\x1b[<0;1;0M',b'\x1b[<256;1;1M',b'\x1b[<0;1;1Mtail',b'\x1b[<0;1;;2M']:
+   self.assertEqual(self.lib.ui_decode_mouse(packet,len(packet),out),-22,packet)
  def test_osc11_fragmented_colors_and_all_osc_packets_hidden(self):
   self.feed('draft');events=0;self.feed(b'\x1b]')
   for byte in b'11;rgb:ffff/8000/0000\x1b\\':events|=self.feed(bytes([byte]));self.lib.input_timeout(self.ctx)
@@ -167,10 +186,51 @@ class EditorTests(unittest.TestCase):
   self.feed(b'\x01');self.assertEqual(self.snap()[1],4)
   self.feed(b'\x05');self.assertEqual(self.snap()[1],8)
   self.begin('a世b世界');self.feed(b'\x1b[A');self.assertEqual(self.snap()[1],5)
+ def test_icu78_unicode17_reference_word_boundaries_and_movements(self):
+  fixtures=json.loads((ROOT/'tests/fixtures/ui_word_reference.json').read_text())
+  out=(C.c_uint64*3000)()
+  for fixture in fixtures:
+   text=fixture['text'];raw=text.encode();n=self.lib.ui_word_boundaries(raw,len(raw),out,1500)
+   self.assertEqual(n,len(fixture['boundaries']),text)
+   self.assertEqual([[out[i*2],out[i*2+1]] for i in range(n)],fixture['boundaries'],text)
+   for move in fixture['movements']:
+    for key,sequence in [('left',b'\x1bb'),('right',b'\x1bf')]:
+     self.begin(text);C.c_uint64.from_buffer(self.ctx,24).value=move['at'];self.feed(sequence)
+     self.assertEqual(self.snap()[1],move[key],(text,move,key))
+ def test_dictionary_capacity_reentrancy_and_source_length_fallback(self):
+  import concurrent.futures
+  fixtures=['你好世界','中华人民共和国','東京都に行きます','ｶﾞｯﾂﾎﾟｰｽﾞ','﨑山神社']
+  def run(text):
+   raw=text.encode();out=(C.c_uint64*3000)();n=self.lib.ui_cjk_boundaries(raw,len(raw),out,1500)
+   self.assertGreater(n,0);return [[out[i*2],out[i*2+1]] for i in range(n)]
+  expected=[run(x) for x in fixtures]
+  with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:results=list(pool.map(run,fixtures*8))
+  for i,value in enumerate(results):self.assertEqual(value,expected[i%len(fixtures)])
+  out=(C.c_uint64*4)(0,0,0x12345678,0x12345678);raw='你好世界'.encode()
+  self.assertEqual(self.lib.ui_cjk_boundaries(raw,len(raw),out,1),-28);self.assertEqual(list(out)[2:],[0x12345678]*2)
+  self.assertEqual(self.lib.ui_cjk_boundaries(raw,len(raw),None,0),2)
+  text='中'*1501;raw=text.encode();self.assertEqual(self.lib.ui_word_boundaries(raw,len(raw),None,0),-1)
+  self.begin(text);self.feed(b'\x1bb');self.assertEqual(self.snap()[1],1500*3)
+  self.begin('one\ntwo');self.feed(b'\x1b[H');self.feed(b'\x1bb');self.assertEqual(self.snap()[1],3)
+ def test_all_four_complex_dictionaries_capacity_unknowns_and_threads(self):
+  import concurrent.futures
+  fixtures=[(1,'ภาษาไทยทดสอบการแบ่งคำ'),(2,'ພາສາລາວທົດສອບ'),(3,'မြန်မာဘာသာစကား'),(4,'ភាសាខ្មែរសាកល្បង')]
+  def run(fixture):
+   kind,text=fixture;raw=text.encode();out=(C.c_uint64*3000)();n=self.lib.ui_complex_boundaries(raw,len(raw),kind,out,1500)
+   self.assertGreater(n,1);return [[out[i*2],out[i*2+1]] for i in range(n)]
+  expected=[run(x) for x in fixtures]
+  with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:actual=list(pool.map(run,fixtures*8))
+  for i,value in enumerate(actual):self.assertEqual(value,expected[i%len(fixtures)])
+  for kind,text in fixtures:
+   raw=text.encode();guard=(C.c_uint64*4)(0,0,0x99999999,0x99999999)
+   self.assertEqual(self.lib.ui_complex_boundaries(raw,len(raw),kind,guard,1),-28);self.assertEqual(list(guard)[2:],[0x99999999]*2)
+   self.assertGreater(self.lib.ui_complex_boundaries(raw,len(raw),kind,None,0),1)
+  self.assertEqual(self.lib.ui_complex_boundaries(b'abc',3,0,None,0),-1)
+  self.assertEqual(self.lib.ui_complex_boundaries(b'abc',3,5,None,0),-1)
  def test_word_scripts_and_punctuation(self):
   self.begin('foo/bar');self.feed(b'\x17');self.assertEqual(self.snap()[0],'foo/')
-  self.begin('abcλμ');self.feed(b'\x1bb');self.assertEqual(self.snap()[1],3)
-  self.begin('a世界');self.feed(b'\x1bb');self.assertEqual(self.snap()[1],4)
+  self.begin('abcλμ');self.feed(b'\x1bb');self.assertEqual(self.snap()[1],0)
+  self.begin('a世界');self.feed(b'\x1bb');self.assertEqual(self.snap()[1],1)
   self.begin('e\u0301');self.feed(b'\x1bb');self.assertEqual(self.snap()[1],0)
  def test_malformed_escape_paste_and_replacement_character(self):
   self.feed('abc\x1b[');self.lib.input_timeout(self.ctx);self.assertEqual(self.snap()[0],'abc')

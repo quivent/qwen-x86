@@ -12,6 +12,12 @@ ep=regex.compile(r'\A\p{Extended_Pictographic}\Z'); wide=regex.compile(r'\A[\p{e
 inc=[regex.compile(r'\A\p{InCB='+p+r'}\Z') for p in ('Consonant','Linker','Extend')]
 word=regex.compile(r'\A[\p{L}\p{N}\p{M}_]\Z'); space=regex.compile(r'\A\p{White_Space}\Z')
 scripts=[regex.compile(r'\A\p{sc='+p+r'}\Z') for p in ('Latin','Greek','Cyrillic','Hebrew','Arabic','Devanagari','Thai','Han','Hiragana','Katakana','Hangul')]
+word_break_names=['CR','LF','Newline','Extend','ZWJ','Regional_Indicator','Format','Katakana','Hebrew_Letter','ALetter','Single_Quote','Double_Quote','MidNumLet','MidLetter','MidNum','Numeric','ExtendNumLet','WSegSpace']
+word_break_patterns=[regex.compile(r'\A\p{Word_Break='+p+r'}\Z') for p in word_break_names]
+complex_scripts=['Thai','Lao','Myanmar','Khmer']
+complex_patterns=[regex.compile(r'(?V1)\A[\p{sc='+p+r'}&&\p{lb=SA}]\Z') for p in complex_scripts]
+mark_pattern=regex.compile(r'\A\p{M}\Z')
+sa_pattern=regex.compile(r'\A\p{lb=SA}\Z')
 ranges=[]; start=0; prev=0
 for cp in range(0x110000):
  c=chr(cp); value=next((i+1 for i,p in enumerate(patterns) if p.fullmatch(c)),0)
@@ -23,6 +29,24 @@ for cp in range(0x110000):
   if p.fullmatch(c):value|=(i+1)<<11;break
  for p,flag in zip(inc,(64,128,256)):
   if p.fullmatch(c):value|=flag
+ for wi,wp in enumerate(word_break_patterns):
+  if wp.fullmatch(c):value|=(wi+1)<<16;break
+ # ICU78 word.txt tailors SA characters into ALetterPlus, excluding Extend
+ # and controls, and excludes Han characters from the ignored Extend class.
+ wb=(value>>16)&31
+ if (value&0xf800)==8<<11 and wb==4:value&=~(31<<16)
+ if sa_pattern.fullmatch(c) and wb!=4 and (value&15)!=3:
+  value=(value&~(31<<16))|(10<<16)
+ for di,dp in enumerate(complex_patterns,1):
+  if dp.fullmatch(c):
+   value|=di<<21
+   if mark_pattern.fullmatch(c):value|=1<<24
+   begin=(0xE01<=cp<=0xE2E or 0xE40<=cp<=0xE44) if di==1 else (0xE81<=cp<=0xEAE or 0xEDC<=cp<=0xEDD or 0xEC0<=cp<=0xEC4) if di==2 else 0x1000<=cp<=0x102A if di==3 else 0x1780<=cp<=0x17B3
+   end=not(cp==0xE31 or 0xE40<=cp<=0xE44) if di==1 else not(0xEC0<=cp<=0xEC4) if di==2 else True if di==3 else cp!=0x17D2
+   if begin:value|=1<<25
+   if end:value|=1<<26
+   if di==1 and cp in (0xE2F,0xE46):value|=1<<27
+   break
  if value!=prev:
   if prev:ranges.append((start,cp-1,prev))
   start=cp;prev=value

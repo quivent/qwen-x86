@@ -2,7 +2,7 @@
   ██╔═══██╗██║    ██║██╔════╝████╗  ██║  │ >_ Qwen Code (native x86-64)                          │ █
   ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                       │ █
   ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ █
-  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-ui-capture-ebzsws5a/workspace               │ █
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-ui-capture-aikh4ywo/workspace               │ █
    ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ █
                                                                                                    █
   Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           █

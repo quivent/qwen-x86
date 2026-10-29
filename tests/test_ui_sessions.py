@@ -10,6 +10,10 @@ class SessionCatalogTests(unittest.TestCase):
   subprocess.run(['ld','-shared',str(base/'ui_sessions.o'),str(base/'json.o'),'-o',str(base/'sessions.so')],check=True)
   cls.lib=C.CDLL(str(base/'sessions.so'));cls.lib.ui_session_catalog.argtypes=[C.c_char_p,C.c_void_p,C.c_size_t];cls.lib.ui_session_catalog.restype=C.c_int64
   cls.lib.ui_session_preview.argtypes=[C.c_char_p,C.c_void_p,C.c_size_t];cls.lib.ui_session_preview.restype=C.c_int64
+  cls.lib.ui_session_mutations_config.argtypes=[C.c_char_p,C.c_int];cls.lib.ui_session_mutations_config.restype=C.c_int64
+  cls.lib.ui_session_rename.argtypes=[C.c_char_p,C.c_void_p,C.c_size_t];cls.lib.ui_session_rename.restype=C.c_int64
+  cls.lib.ui_session_delete.argtypes=[C.c_char_p];cls.lib.ui_session_delete.restype=C.c_int64
+  cls.lib.ui_session_delete_many.argtypes=[C.c_void_p,C.c_size_t,C.c_void_p];cls.lib.ui_session_delete_many.restype=C.c_int64
   cls.lib.ui_relative_time.argtypes=[C.c_int64,C.c_int64,C.c_void_p,C.c_size_t];cls.lib.ui_relative_time.restype=C.c_int64
  @classmethod
  def tearDownClass(cls):cls.tmp.cleanup()
@@ -79,6 +83,53 @@ class SessionCatalogTests(unittest.TestCase):
   for _ in range(8):self.assertGreater(self.lib.ui_session_preview(os.fsencode(valid),out,len(out)),0)
   self.assertEqual(len(list(pathlib.Path('/proc/self/fd').iterdir())),before)
   empty=self.directory/'session-empty.json';empty.write_text('[]');n=self.lib.ui_session_preview(os.fsencode(empty),out,len(out));self.assertIn(b'No text messages',out.raw[:n])
+
+ def test_attachment_array_catalog_and_preview_show_only_prompt_text(self):
+  p=self.directory/'session-attachments.json';p.write_text(json.dumps([{'role':'user','content':[{'type':'text','text':'real @image.png question λ'},{'type':'image_url','image_url':{'url':'data:image/png;base64,SECRETBASE64'}},{'type':'text','text':'ATTACHMENT BODY MUST NOT LABEL'}]},{'role':'assistant','content':'answer'}]))
+  self.assertEqual(self.catalog()[1][0][0],'real @image.png question λ')
+  out=C.create_string_buffer(1048577);n=self.lib.ui_session_preview(os.fsencode(p),out,len(out));self.assertGreater(n,0);self.assertIn('real @image.png question λ',out.value.decode());self.assertNotIn(b'SECRETBASE64',out.value);self.assertNotIn(b'ATTACHMENT BODY',out.value)
+
+ def test_rename_persists_title_without_touching_transcript(self):
+  p=self.file('rename','original prompt');before=(p.read_bytes(),p.stat().st_mtime_ns)
+  self.assertEqual(self.lib.ui_session_mutations_config(os.fsencode(self.home),1),0)
+  title='Renamed λ 👩 with "quotes"'.encode()
+  self.assertEqual(self.lib.ui_session_rename(os.fsencode(p),title,len(title)),0)
+  sidecar=pathlib.Path(str(p)+'.title');self.assertEqual(json.loads(sidecar.read_text()),title.decode());self.assertEqual(sidecar.stat().st_mode&0o777,0o600)
+  self.assertEqual(self.catalog()[1][0][0],title.decode());self.assertEqual((p.read_bytes(),p.stat().st_mtime_ns),before)
+  # A later real transcript save preserves the independent title.
+  p.write_text('[{"role":"user","content":"later save"}]');self.assertEqual(self.catalog()[1][0][0],title.decode())
+  self.assertFalse(list(self.directory.glob('.title-*')))
+ def test_session_mutations_confinement_denial_invalid_titles_and_links(self):
+  p=self.file('safe');self.lib.ui_session_mutations_config(os.fsencode(self.home),0)
+  self.assertEqual(self.lib.ui_session_delete(os.fsencode(p)),-13);self.assertEqual(self.lib.ui_session_rename(os.fsencode(p),b'new',3),-13)
+  self.lib.ui_session_mutations_config(os.fsencode(self.home),1)
+  outside=self.home/'session-outside.json';outside.write_text('[]')
+  for path in [outside,self.directory/'../session-safe.json',self.directory/'other.json']:
+   self.assertLess(self.lib.ui_session_delete(os.fsencode(path)),0)
+  link=self.directory/'session-link.json';link.symlink_to(p)
+  fifo=self.directory/'session-fifo.json';os.mkfifo(fifo)
+  for path in [link,fifo]:self.assertLess(self.lib.ui_session_delete(os.fsencode(path)),0)
+  for title in [b'',b'new\nname',b'bad\x00name',b'\xff',b'a'*401]:self.assertLess(self.lib.ui_session_rename(os.fsencode(p),title,len(title)),0)
+  self.assertTrue(p.exists());self.assertTrue(outside.exists());self.assertFalse(pathlib.Path(str(p)+'.title').exists())
+  # A sidecar symlink is replaced atomically; its target is never opened/written.
+  titlepath=pathlib.Path(str(p)+'.title');titlepath.symlink_to(outside)
+  self.assertEqual(self.lib.ui_session_rename(os.fsencode(p),b'safe title',10),0);self.assertEqual(outside.read_text(),'[]');self.assertFalse(titlepath.is_symlink())
+ def test_multiselect_delete_reports_individual_results_and_removes_title(self):
+  p=self.file('first');q=self.file('second');agentstate=pathlib.Path(str(p)+'.agent.json');agentstate.write_text('{"kind":"acp","sessionId":"private"}');outside=self.home/'session-outside.json';outside.write_text('[]')
+  self.lib.ui_session_mutations_config(os.fsencode(self.home),1);self.assertEqual(self.lib.ui_session_rename(os.fsencode(p),b'title',5),0)
+  paths=(C.c_char_p*3)(os.fsencode(p),os.fsencode(outside),os.fsencode(q));statuses=(C.c_int64*3)()
+  self.assertEqual(self.lib.ui_session_delete_many(paths,3,statuses),2);self.assertEqual([statuses[0],statuses[2]],[0,0]);self.assertLess(statuses[1],0)
+  self.assertFalse(p.exists());self.assertFalse(q.exists());self.assertFalse(pathlib.Path(str(p)+'.title').exists());self.assertFalse(agentstate.exists());self.assertTrue(outside.exists())
+  self.assertEqual(self.lib.ui_session_delete_many(paths,65,statuses),-22)
+ def test_sidecar_validation_and_repeated_mutations_do_not_leak_fds(self):
+  p=self.file('title','fallback');sidecar=pathlib.Path(str(p)+'.title')
+  for content in ['{}','"bad\\nname"','"'+('x'*401)+'"','[broken']:
+   sidecar.write_text(content);self.assertEqual(self.catalog()[1][0][0],'fallback')
+  sidecar.unlink();os.mkfifo(sidecar);self.assertEqual(self.catalog()[1][0][0],'fallback');sidecar.unlink()
+  self.lib.ui_session_mutations_config(os.fsencode(self.home),1);before=len(list(pathlib.Path('/proc/self/fd').iterdir()))
+  for i in range(12):
+   self.assertEqual(self.lib.ui_session_rename(os.fsencode(p),b'repeated',8),0);self.assertEqual(self.catalog()[1][0][0],'repeated')
+  self.assertEqual(len(list(pathlib.Path('/proc/self/fd').iterdir())),before)
 
 class SessionPickerPTYTests(unittest.TestCase):
  @classmethod

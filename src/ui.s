@@ -22,7 +22,7 @@
 .Lu_home: .byte 27,91,72,0
 .Lu_clear: .byte 27,91,74,0
 .Lu_start: .byte 27,91,63,49,48,52,57,104,27,91,63,50,53,108,27,91,63,50,48,48,52,104,27,91,63,49,48,48,50,104,27,91,63,49,48,48,54,104,0
-.Lu_restore: .byte 27,91,48,109,27,91,63,49,48,48,50,108,27,91,63,49,48,48,54,108,27,91,63,50,48,48,52,108,27,91,63,50,53,104,27,91,63,49,48,52,57,108,0
+.Lu_restore: .byte 27,91,63,49,48,48,51,108,27,91,48,109,27,91,63,49,48,48,50,108,27,91,63,49,48,48,54,108,27,91,63,50,48,48,52,108,27,91,63,50,53,104,27,91,63,49,48,52,57,108,0
 .Lu_space: .byte 32,0
 .Lu_margin: .byte 32,32,0
 .Lu_cont: .byte 32,32,32,32,0
@@ -58,7 +58,7 @@
 .Lu_completed_preview_marker: .byte 32,0
 .Lu_queued: .byte 77,101,115,115,97,103,101,32,113,117,101,117,101,100,0
 .Lu_empty: .byte 0
-.Lu_commands_default: .byte 47,104,101,108,112,10,47,99,108,101,97,114,10,47,114,101,116,114,121,10,47,109,111,100,101,108,10,47,116,104,101,109,101,10,47,97,112,112,114,111,118,97,108,45,109,111,100,101,10,47,110,101,119,10,47,115,101,115,115,105,111,110,10,47,114,101,115,117,109,101,10,47,115,101,115,115,105,111,110,115,10,47,112,108,117,103,105,110,115,10,47,97,103,101,110,116,115,10,47,97,98,111,117,116,10,47,99,111,112,121,10,47,113,117,105,116,10,0
+.Lu_commands_default: .asciz "/help\n/auth\n/connect\n/login\n/settings\n/account\n/clear\n/retry\n/model\n/theme\n/approval-mode\n/new\n/session\n/resume\n/sessions\n/rename\n/delete\n/extensions\n/extensions manage\n/extensions list\n/reload-plugins\n/plugins\n/agents\n/agents manage\n/agents create\n/about\n/copy\n/quit\n"
 .section .bss
 .balign 16
 .Lu_active: .skip 8
@@ -117,7 +117,7 @@
 .Lu_choose_selection: .skip 8
 .Lu_mode: .skip 8
 .set .Lu_start_len, 38
-.set .Lu_restore_len, 42
+.set .Lu_restore_len, 50
 .section .text
 .globl ui_set_model,ui_set_auth,ui_set_approval_mode,ui_choose,ui_set_theme
 .globl ui_start,ui_readline,ui_user,ui_begin_response,ui_delta,ui_end_response,ui_status,ui_tool_begin,ui_tool_end,ui_approve,ui_reset,ui_restore,ui_tick,ui_poll,ui_take_queued,ui_set_commands
@@ -459,8 +459,21 @@ ui_set_theme:
  push rbx
  push r12
  push r13
+ mov r13,rdi
  cmp rdi,16
- jae .Lu_theme_invalid
+ jb .Lu_theme_builtin
+ cmp rdi,17
+ jb .Lu_theme_invalid
+ mov rax,[rip+.Lu_custom_palette]
+ test rax,rax
+ jz .Lu_theme_invalid
+ xor esi,esi
+ call rax
+ test rax,rax
+ jz .Lu_theme_invalid
+ mov r12,rax
+ mov rdi,r13
+.Lu_theme_builtin:
  mov [rip+.Lu_theme],rdi
  mov rax,rdi
  cmp rax,15
@@ -472,8 +485,11 @@ ui_set_theme:
  mov eax,16
 .Lu_theme_color_enabled:
  mov [rip+.Lu_theme_resolved],rax
+ cmp rax,17
+ jae .Lu_theme_palette_ready
  lea rdx,[rip+.Lu_all_theme_palettes]
  mov r12,[rdx+rax*8]
+.Lu_theme_palette_ready:
  xor ebx,ebx
 .Lu_theme_copy:
  mov rdi,[r12+rbx*8]
@@ -1062,6 +1078,8 @@ ui_start:
  js .Lu_build_skip
  mov r14,rax
  lea r13,[rip+.Lu_clean]
+ cmp qword ptr [r12],8
+ je .Lu_build_numbered_preview
  cmp qword ptr [r12],2
  jne .Lu_build_prefix
  mov rdi,r13
@@ -1077,6 +1095,23 @@ ui_start:
  mov rax,[rip+.Lu_mermaid_offset]
  mov [rsp+8],rax
  call ui_format_markdown_full
+ add rsp,16
+ test rax,rax
+ js .Lu_build_prefix
+ mov r14,rax
+ lea r13,[rip+.Lu_formatted]
+ jmp .Lu_build_prefix
+.Lu_build_numbered_preview:
+ mov rdi,r13
+ mov rsi,r14
+ lea rdx,[rip+.Lu_formatted]
+ mov ecx,4194304
+ mov r8,[rip+.Lu_columns]
+ sub r8,4
+ mov r9,[rip+.Lu_theme_resolved]
+ sub rsp,16
+ mov qword ptr [rsp],0
+ call ui_format_numbered_preview
  add rsp,16
  test rax,rax
  js .Lu_build_prefix
@@ -1315,6 +1350,27 @@ ui_start:
  jne .Lu_logo_gradient_ready
  lea rax,[rip+.Lu_theme_gradient_themes]
  mov rdx,[rip+.Lu_theme_resolved]
+ cmp rdx,17
+ jb .Lu_logo_builtin_gradient
+ mov rax,[rip+.Lu_custom_gradient]
+ test rax,rax
+ jz .Lu_logo_custom_accent
+ mov rdi,rdx
+ mov esi,37
+ test rbx,rbx
+ jnz .Lu_logo_custom_width
+ mov esi,36
+.Lu_logo_custom_width:
+ call rax
+ test rax,rax
+ jz .Lu_logo_custom_accent
+ mov rdx,[rsp+8]
+ mov rdi,[rax+rdx*8]
+ jmp .Lu_logo_gradient_ready
+.Lu_logo_custom_accent:
+ lea rdi,[rip+.Lu_accent]
+ jmp .Lu_logo_gradient_ready
+.Lu_logo_builtin_gradient:
  mov rax,[rax+rdx*8]
  test rbx,rbx
  jz .Lu_logo_gradient_first_row
@@ -2054,6 +2110,15 @@ ui_start:
  lea rdi,[rip+.Lu_cursor_off]
  call .Lu_z
 .Lu_frame_write:
+ lea rdi,[rip+.Lu_mouse_drag_mode]
+ cmp qword ptr [rip+.Lu_choose],0
+ jne .Lu_frame_mouse_all
+ cmp qword ptr [rip+.Lu_menu_count],0
+ je .Lu_frame_mouse_mode
+.Lu_frame_mouse_all:
+ lea rdi,[rip+.Lu_mouse_all_mode]
+.Lu_frame_mouse_mode:
+ call .Lu_z
  call .Lu_reset_color
  mov edi,1
  lea rsi,[rip+.Lu_frame]
@@ -2070,6 +2135,15 @@ ui_start:
 # Monotonic50ms frame budget. Resize remains checked on every polling tick.
 ui_tick:
  push rbx
+ cmp qword ptr [rip+.Lu_activity_busy],0
+ jne .Lu_tick_activity_done
+ mov rax,[rip+.Lu_activity_hook]
+ test rax,rax
+ jz .Lu_tick_activity_done
+ mov qword ptr [rip+.Lu_activity_busy],1
+ call rax
+ mov qword ptr [rip+.Lu_activity_busy],0
+.Lu_tick_activity_done:
  call .Lu_resize
  cmp qword ptr [rip+.Lu_active],0
  je .Lu_tick_auto_done
@@ -2247,6 +2321,11 @@ ui_tick:
 .Lu_flags:
  push rbx
  mov rbx,rdi
+ test ebx,0x80000000
+ jz .Lu_flags_no_pointer
+ call .Lu_pointer_event
+ or rbx,rax
+.Lu_flags_no_pointer:
  test rbx,INPUT_CHANGED
  jz .Lu_flags_not_changed
  mov qword ptr [rip+.Lu_menu_dismiss],0
@@ -2921,6 +3000,10 @@ ui_readline:
  je .Lu_dialog_up
  cmp ebx,66
  je .Lu_dialog_down
+ cmp ebx,67
+ je .Lu_dialog_right
+ cmp ebx,68
+ je .Lu_dialog_left
  cmp ebx,53
  je .Lu_dialog_mark_up
  cmp ebx,54
@@ -2966,41 +3049,66 @@ ui_readline:
 .Lu_dialog_mouse_start:
  mov qword ptr [rip+.Lu_dialog_escape],5
  mov qword ptr [rip+.Lu_dialog_button],0
+ mov qword ptr [rip+.Lu_dialog_x],0
+ mov qword ptr [rip+.Lu_dialog_y],0
+ mov qword ptr [rip+.Lu_dialog_release],0
+ mov qword ptr [rip+.Lu_dialog_mouse_digits],0
  mov qword ptr [rip+.Lu_dialog_mouse_phase],0
  jmp .Lu_dialog_none
 .Lu_dialog_mouse_byte:
  cmp ebx,77
  je .Lu_dialog_mouse_final
  cmp ebx,109
- je .Lu_dialog_mouse_release
+ je .Lu_dialog_mouse_final_release
  cmp ebx,59
  je .Lu_dialog_mouse_separator
  cmp ebx,48
  jb .Lu_dialog_mouse_invalid
  cmp ebx,57
  ja .Lu_dialog_mouse_invalid
- cmp qword ptr [rip+.Lu_dialog_mouse_phase],0
- jne .Lu_dialog_none
- mov rax,[rip+.Lu_dialog_button]
+ mov rdx,[rip+.Lu_dialog_mouse_phase]
+ cmp rdx,2
+ ja .Lu_dialog_mouse_invalid
+ lea rcx,[rip+.Lu_dialog_button]
+ mov rax,[rcx+rdx*8]
  imul rax,rax,10
  sub ebx,48
  add rax,rbx
- cmp rax,255
+ cmp rax,65535
  ja .Lu_dialog_mouse_invalid
- mov [rip+.Lu_dialog_button],rax
+ mov [rcx+rdx*8],rax
+ inc qword ptr [rip+.Lu_dialog_mouse_digits]
  jmp .Lu_dialog_none
 .Lu_dialog_mouse_separator:
+ cmp qword ptr [rip+.Lu_dialog_mouse_digits],0
+ je .Lu_dialog_mouse_invalid
+ mov qword ptr [rip+.Lu_dialog_mouse_digits],0
  inc qword ptr [rip+.Lu_dialog_mouse_phase]
+ cmp qword ptr [rip+.Lu_dialog_mouse_phase],2
+ ja .Lu_dialog_mouse_invalid
  jmp .Lu_dialog_none
+.Lu_dialog_mouse_final_release:
+ mov qword ptr [rip+.Lu_dialog_release],1
 .Lu_dialog_mouse_final:
  mov qword ptr [rip+.Lu_dialog_escape],0
  cmp qword ptr [rip+.Lu_dialog_mouse_phase],2
  jne .Lu_dialog_none
- cmp qword ptr [rip+.Lu_dialog_button],64
+ cmp qword ptr [rip+.Lu_dialog_mouse_digits],0
+ je .Lu_dialog_none
+ cmp qword ptr [rip+.Lu_dialog_x],0
+ je .Lu_dialog_none
+ cmp qword ptr [rip+.Lu_dialog_y],0
+ je .Lu_dialog_none
+ mov rax,[rip+.Lu_dialog_button]
+ cmp rax,127
+ ja .Lu_dialog_none
+ and eax,0xe3
+ cmp eax,64
  je .Lu_dialog_wheel_up
- cmp qword ptr [rip+.Lu_dialog_button],65
+ cmp eax,65
  je .Lu_dialog_wheel_down
- jmp .Lu_dialog_none
+ mov eax,19
+ jmp .Lu_dialog_return
 .Lu_dialog_mouse_invalid:
  mov qword ptr [rip+.Lu_dialog_escape],6
  jmp .Lu_dialog_none
@@ -3063,6 +3171,12 @@ ui_readline:
  jmp .Lu_dialog_return
 .Lu_dialog_down:
  mov eax,2
+ jmp .Lu_dialog_return
+.Lu_dialog_right:
+ mov eax,17
+ jmp .Lu_dialog_return
+.Lu_dialog_left:
+ mov eax,18
  jmp .Lu_dialog_return
 .Lu_dialog_enter:
  mov eax,3
@@ -3241,7 +3355,14 @@ ui_choose:
  mov qword ptr [rip+.Lu_scope_focus],0
  mov qword ptr [rip+.Lu_help_scroll],0
  mov qword ptr [rip+.Lu_resume_search_active],0
+ mov qword ptr [rip+.Lu_multi_mask],0
  mov qword ptr [rip+.Lu_read_preview_active],0
+ cmp qword ptr [rip+.Lu_view_only],0
+ je .Lu_choose_read_mode_ready
+ mov qword ptr [rip+.Lu_read_preview_active],1
+ mov qword ptr [rip+.Lu_read_scroll],0
+ call .Lu_format_read_preview
+.Lu_choose_read_mode_ready:
  mov qword ptr [rip+.Lu_reader_error],0
  call .Lu_choose_filter
  mov qword ptr [rip+.Lu_choose],1
@@ -3275,6 +3396,25 @@ ui_choose:
  call .Lu_dialog_read
  cmp eax,16
  je .Lu_choose_invalid
+ cmp eax,19
+ je .Lu_choose_mouse_event
+ cmp qword ptr [rip+.Lu_choice_tabs_count],0
+ je .Lu_choose_nonmanager_key
+ cmp eax,14
+ je .Lu_manager_tab_next
+ cmp eax,15
+ je .Lu_manager_tab_previous
+ cmp eax,17
+ je .Lu_manager_tab_next
+ cmp eax,18
+ je .Lu_manager_tab_previous
+ cmp eax,9
+ jne .Lu_choose_nonmanager_key
+ cmp byte ptr [rip+.Lu_bytes],32
+ je .Lu_manager_toggle
+ cmp byte ptr [rip+.Lu_bytes],102
+ je .Lu_manager_favorite
+.Lu_choose_nonmanager_key:
  cmp qword ptr [rip+.Lu_read_preview_active],0
  jne .Lu_choose_preview_key
  cmp qword ptr [rip+.Lu_choice_layout],4
@@ -3452,7 +3592,12 @@ ui_choose:
  jmp .Lu_choose_loop
 .Lu_choose_accept:
  cmp qword ptr [rip+.Lu_filtered_count],0
+ jne .Lu_choose_accept_item
+ cmp qword ptr [rip+.Lu_prompt_mode],0
  je .Lu_choose_loop
+ xor ebx,ebx
+ jmp .Lu_choose_done
+.Lu_choose_accept_item:
  mov rbx,[rip+.Lu_choose_selection]
  jmp .Lu_choose_done
 .Lu_choose_invalid:
@@ -3465,6 +3610,99 @@ ui_choose:
  pop r12
  pop rbx
  ret
+.Lu_choose_mouse_event:
+ cmp qword ptr [rip+.Lu_read_preview_active],0
+ jne .Lu_choose_loop
+ cmp qword ptr [rip+.Lu_choice_layout],5
+ je .Lu_choose_agents_mouse
+ cmp qword ptr [rip+.Lu_choice_layout],6
+ je .Lu_choose_agents_mouse
+ mov rax,[rip+.Lu_dialog_button]
+ test eax,128|64
+ jnz .Lu_choose_loop
+ and eax,3
+ cmp eax,0
+ je .Lu_choose_mouse_left
+ cmp eax,3
+ jne .Lu_choose_loop
+ cmp qword ptr [rip+.Lu_dialog_release],0
+ je .Lu_choose_loop
+.Lu_choose_mouse_left:
+ mov rax,[rip+.Lu_dialog_x]
+ cmp rax,5
+ jb .Lu_choose_loop
+ mov rdx,[rip+.Lu_columns]
+ sub rdx,3
+ cmp rax,rdx
+ jae .Lu_choose_loop
+ mov rax,[rip+.Lu_dialog_y]
+ sub rax,[rip+.Lu_box_list_top]
+ js .Lu_choose_loop
+ xor edx,edx
+ mov ecx,2
+ cmp qword ptr [rip+.Lu_box_theme],0
+ je .Lu_choose_mouse_stride
+ mov ecx,1
+.Lu_choose_mouse_stride:
+ div rcx
+ cmp rax,[rip+.Lu_box_visible_rows]
+ jae .Lu_choose_loop
+ add rax,[rip+.Lu_box_visible_start]
+ cmp rax,[rip+.Lu_filtered_count]
+ jae .Lu_choose_loop
+ mov [rip+.Lu_filtered_selection],rax
+ lea rdx,[rip+.Lu_filtered]
+ mov rax,[rdx+rax*8]
+ mov [rip+.Lu_choose_selection],rax
+ cmp qword ptr [rip+.Lu_dialog_release],0
+ jne .Lu_choose_accept
+ jmp .Lu_choose_loop
+.Lu_choose_agents_mouse:
+ mov rax,[rip+.Lu_dialog_button]
+ test eax,192
+ jnz .Lu_choose_loop
+ and eax,3
+ test eax,eax
+ jnz .Lu_choose_loop
+ mov rcx,[rip+.Lu_agent_hit_count]
+ xor edx,edx
+.Lu_choose_agents_hit:
+ cmp rdx,rcx
+ jae .Lu_choose_loop
+ lea r8,[rip+.Lu_agent_hit_rows]
+ cmp rdx,256
+ jae .Lu_choose_loop
+ mov rax,[rip+.Lu_dialog_y]
+ cmp rax,[r8+rdx*8]
+ je .Lu_choose_agents_found
+ inc rdx
+ jmp .Lu_choose_agents_hit
+.Lu_choose_agents_found:
+ lea r8,[rip+.Lu_agent_hit_indices]
+ mov rdx,[r8+rdx*8]
+ mov [rip+.Lu_filtered_selection],rdx
+ lea r8,[rip+.Lu_filtered]
+ mov rax,[r8+rdx*8]
+ mov [rip+.Lu_choose_selection],rax
+ cmp qword ptr [rip+.Lu_dialog_release],0
+ jne .Lu_choose_accept
+ jmp .Lu_choose_loop
+.Lu_manager_tab_next:
+ mov ebx,1
+ jmp .Lu_manager_result
+.Lu_manager_tab_previous:
+ mov ebx,2
+ jmp .Lu_manager_result
+.Lu_manager_toggle:
+ mov ebx,3
+ jmp .Lu_manager_result
+.Lu_manager_favorite:
+ mov ebx,4
+.Lu_manager_result:
+ shl rbx,32
+ mov eax,dword ptr [rip+.Lu_choose_selection]
+ or rbx,rax
+ jmp .Lu_choose_done
 .Lu_choose_view:
  push rbx
  push r12
@@ -3498,7 +3736,12 @@ ui_choose:
 .Lu_box_top_row:
  lea rdi,[rip+.Lu_round_tl]
  cmp qword ptr [rip+.Lu_choice_layout],4
+ je .Lu_box_square_tl
+ cmp qword ptr [rip+.Lu_choice_layout],5
+ je .Lu_box_square_tl
+ cmp qword ptr [rip+.Lu_choice_layout],6
  jne .Lu_box_top_corner
+.Lu_box_square_tl:
  lea rdi,[rip+.Lu_tl]
 .Lu_box_top_corner:
  call .Lu_z
@@ -3508,7 +3751,12 @@ ui_choose:
  call .Lu_repeat
  lea rdi,[rip+.Lu_round_tr]
  cmp qword ptr [rip+.Lu_choice_layout],4
+ je .Lu_box_square_tr
+ cmp qword ptr [rip+.Lu_choice_layout],5
+ je .Lu_box_square_tr
+ cmp qword ptr [rip+.Lu_choice_layout],6
  jne .Lu_box_top_right
+.Lu_box_square_tr:
  lea rdi,[rip+.Lu_tr]
 .Lu_box_top_right:
  call .Lu_z
@@ -3516,7 +3764,12 @@ ui_choose:
 .Lu_box_bottom_row:
  lea rdi,[rip+.Lu_round_bl]
  cmp qword ptr [rip+.Lu_choice_layout],4
+ je .Lu_box_square_bl
+ cmp qword ptr [rip+.Lu_choice_layout],5
+ je .Lu_box_square_bl
+ cmp qword ptr [rip+.Lu_choice_layout],6
  jne .Lu_box_bottom_corner
+.Lu_box_square_bl:
  lea rdi,[rip+.Lu_bl]
 .Lu_box_bottom_corner:
  call .Lu_z
@@ -3526,7 +3779,12 @@ ui_choose:
  call .Lu_repeat
  lea rdi,[rip+.Lu_round_br]
  cmp qword ptr [rip+.Lu_choice_layout],4
+ je .Lu_box_square_br
+ cmp qword ptr [rip+.Lu_choice_layout],5
+ je .Lu_box_square_br
+ cmp qword ptr [rip+.Lu_choice_layout],6
  jne .Lu_box_bottom_right
+.Lu_box_square_br:
  lea rdi,[rip+.Lu_br]
 .Lu_box_bottom_right:
  call .Lu_z
@@ -3549,6 +3807,11 @@ ui_choose:
  call .Lu_scope_view
  jmp .Lu_box_view_finish
 .Lu_box_theme_focus:
+ cmp qword ptr [rip+.Lu_choice_tabs_count],0
+ je .Lu_box_regular_title
+ call .Lu_manager_tabs_view
+ jmp .Lu_box_query_after_title
+.Lu_box_regular_title:
  mov rdi,[rip+.Lu_box_top]
  add rdi,2
  cmp qword ptr [rip+.Lu_choice_layout],3
@@ -3570,6 +3833,17 @@ ui_choose:
  sub rsi,8
  call .Lu_field
  call .Lu_reset_color
+.Lu_box_query_after_title:
+ cmp qword ptr [rip+.Lu_choice_layout],5
+ jne .Lu_box_not_agents_list
+ call .Lu_agents_list_view
+ jmp .Lu_box_regular_footer
+.Lu_box_not_agents_list:
+ cmp qword ptr [rip+.Lu_choice_layout],6
+ jne .Lu_box_not_extensions_list
+ call .Lu_extensions_list_view
+ jmp .Lu_box_regular_footer
+.Lu_box_not_extensions_list:
  mov rdi,[rip+.Lu_box_top]
  add rdi,3
  cmp qword ptr [rip+.Lu_choice_layout],3
@@ -3601,6 +3875,17 @@ ui_choose:
  lea rdi,[rip+.Lu_choose_query_label]
 .Lu_box_query_label:
  call .Lu_z
+ cmp qword ptr [rip+.Lu_prompt_secret],0
+ je .Lu_box_visible_query
+ lea rdi,[rip+.Lu_password_char]
+ mov rsi,[rip+.Lu_query_len]
+ mov rax,[rip+.Lu_columns]
+ sub rax,18
+ cmp rsi,rax
+ cmova rsi,rax
+ call .Lu_repeat
+ jmp .Lu_box_no_query
+.Lu_box_visible_query:
  lea rdi,[rip+.Lu_query]
  mov rsi,[rip+.Lu_query_len]
  lea rdx,[rip+.Lu_clean]
@@ -3625,6 +3910,8 @@ ui_choose:
  lea rdi,[rip+.Lu_resume_search_cursor]
  call .Lu_z
  .Lu_box_no_query:
+ cmp qword ptr [rip+.Lu_prompt_mode],0
+ jne .Lu_box_controls
  cmp qword ptr [rip+.Lu_choice_layout],3
  jne .Lu_box_resume_rule_done
  mov rdi,[rip+.Lu_box_top]
@@ -3648,6 +3935,7 @@ ui_choose:
  jge .Lu_box_list_height
  mov r12,1
 .Lu_box_list_height:
+ mov [rip+.Lu_box_visible_rows],r12
  cmp qword ptr [rip+.Lu_filtered_count],0
  jne .Lu_box_has_items
  mov rdi,[rip+.Lu_box_top]
@@ -3699,6 +3987,8 @@ ui_choose:
 .Lu_box_list_start:
  mov r14,[rip+.Lu_box_top]
  add r14,4
+ mov [rip+.Lu_box_list_top],r14
+ mov [rip+.Lu_box_visible_start],r13
  xor ebx,ebx
 .Lu_box_item:
  cmp rbx,r12
@@ -3729,6 +4019,21 @@ ui_choose:
  jne .Lu_box_item_marker
  lea rdi,[rip+.Lu_marker]
 .Lu_box_item_marker:
+ cmp qword ptr [rip+.Lu_multi_enabled],0
+ je .Lu_box_item_marker_ready
+ lea rdi,[rip+.Lu_unchecked]
+ mov rax,[rip+.Lu_multi_mask]
+ lea rdx,[rip+.Lu_filtered]
+ mov rcx,[rdx+r13*8]
+ bt rax,rcx
+ jnc .Lu_box_multi_marker
+ lea rdi,[rip+.Lu_checked]
+.Lu_box_multi_marker:
+ call .Lu_z
+ lea rax,[rip+.Lu_filtered]
+ mov r15,[rax+r13*8]
+ jmp .Lu_box_item_number_ready
+.Lu_box_item_marker_ready:
  call .Lu_z
  lea rax,[rip+.Lu_filtered]
  mov r15,[rax+r13*8]
@@ -3891,6 +4196,10 @@ ui_choose:
  je .Lu_resume_controls_selected
  lea rdi,[rip+.Lu_resume_preview_controls]
 .Lu_resume_controls_selected:
+ cmp qword ptr [rip+.Lu_multi_enabled],0
+ je .Lu_resume_controls_render
+ lea rdi,[rip+.Lu_multi_controls]
+.Lu_resume_controls_render:
  mov rsi,[rip+.Lu_columns]
  sub rsi,8
  call .Lu_field
@@ -3899,11 +4208,23 @@ ui_choose:
  mov rdi,[rip+.Lu_box_top]
  add rdi,[rip+.Lu_box_height]
  sub rdi,3
+ cmp qword ptr [rip+.Lu_choice_layout],6
+ jne .Lu_box_footer_row_ready
+ inc rdi
+.Lu_box_footer_row_ready:
  mov esi,5
  call .Lu_move
  lea rdi,[rip+.Lu_muted]
  call .Lu_z
  lea rdi,[rip+.Lu_box_help]
+ cmp qword ptr [rip+.Lu_choice_footer],0
+ je .Lu_box_custom_footer_ready
+ mov rdi,[rip+.Lu_choice_footer]
+.Lu_box_custom_footer_ready:
+ cmp qword ptr [rip+.Lu_prompt_mode],0
+ je .Lu_box_prompt_footer_ready
+ lea rdi,[rip+.Lu_prompt_controls]
+.Lu_box_prompt_footer_ready:
  cmp qword ptr [rip+.Lu_box_theme],0
  je .Lu_box_help_selected
  lea rdi,[rip+.Lu_theme_help]
@@ -5144,11 +5465,26 @@ ui_set_choice_empty_text:
 .Lu_choose_box_geometry:
  mov qword ptr [rip+.Lu_box_theme],0
  mov eax,16
+ cmp qword ptr [rip+.Lu_choice_layout],6
+ jne .Lu_box_not_extensions_geometry
+ mov rax,[rip+.Lu_choose_count]
+ imul rax,rax,2
+ add rax,8
+ jmp .Lu_box_geometry_clamp
+.Lu_box_not_extensions_geometry:
+ cmp qword ptr [rip+.Lu_choice_layout],5
+ jne .Lu_box_not_agents_geometry
+ mov rax,[rip+.Lu_choose_count]
+ add rax,12
+ jmp .Lu_box_geometry_clamp
+.Lu_box_not_agents_geometry:
  cmp qword ptr [rip+.Lu_choice_layout],4
  jne .Lu_box_not_help_geometry
- mov eax,21
+ mov eax,20
  jmp .Lu_box_geometry_clamp
 .Lu_box_not_help_geometry:
+ cmp qword ptr [rip+.Lu_choice_layout],1
+ je .Lu_box_geometry_clamp
  cmp qword ptr [rip+.Lu_choice_layout],3
  je .Lu_box_resume_geometry
  cmp qword ptr [rip+.Lu_choose_count],0
@@ -5159,7 +5495,7 @@ ui_set_choice_empty_text:
  je .Lu_box_geometry_clamp
 .Lu_box_theme_geometry:
  mov qword ptr [rip+.Lu_box_theme],1
- mov eax,22
+ mov eax,21
  jmp .Lu_box_geometry_clamp
 .Lu_box_resume_geometry:
  mov rax,[rip+.Lu_rows]
@@ -5315,6 +5651,10 @@ ui_set_choice_empty_text:
 
 .section .bss
 .Lu_dialog_button: .skip 8
+.Lu_dialog_x: .skip 8
+.Lu_dialog_y: .skip 8
+.Lu_dialog_release: .skip 8
+.Lu_dialog_mouse_digits: .skip 8
 .Lu_dialog_mouse_phase: .skip 8
 
 .include "ui_themes.inc"
@@ -5325,28 +5665,58 @@ ui_set_choice_empty_text:
 .section .text
 .globl ui_theme_catalog,ui_theme_name,ui_theme_find
 ui_theme_catalog:
+ push rbx
+ push r12
+ push r13
+ mov r12,rdi
+ mov r13,rsi
+ xor ebx,ebx
  test rsi,rsi
- jz .Lu_theme_catalog_measure
+ jz .Lu_theme_catalog_custom_measure
  test rdi,rdi
  jz .Lu_theme_catalog_bad
  cmp rsi,16
  jbe .Lu_theme_catalog_copy
  mov esi,16
 .Lu_theme_catalog_copy:
- mov rax,rsi
+ mov rbx,rsi
  imul rcx,rsi,3
  lea rsi,[rip+.Lu_all_theme_catalog]
  rep movsq
- ret
-.Lu_theme_catalog_measure:
- mov eax,16
- ret
+ cmp r13,16
+ jbe .Lu_theme_catalog_done
+ mov rsi,r13
+ sub rsi,16
+ jmp .Lu_theme_catalog_custom
+.Lu_theme_catalog_custom_measure:
+ mov ebx,16
+ xor esi,esi
+.Lu_theme_catalog_custom:
+ mov rax,[rip+.Lu_custom_catalog]
+ test rax,rax
+ jz .Lu_theme_catalog_done
+ call rax
+ test rax,rax
+ js .Lu_theme_catalog_done
+ add rbx,rax
+.Lu_theme_catalog_done:
+ mov rax,rbx
+ jmp .Lu_theme_catalog_return
 .Lu_theme_catalog_bad:
  mov rax,-22
+.Lu_theme_catalog_return:
+ pop r13
+ pop r12
+ pop rbx
  ret
 ui_theme_name:
  cmp rdi,16
- jae .Lu_theme_name_bad
+ jb .Lu_theme_name_builtin
+ mov rax,[rip+.Lu_custom_name]
+ test rax,rax
+ jz .Lu_theme_name_bad
+ jmp rax
+.Lu_theme_name_builtin:
  lea rax,[rip+.Lu_all_theme_names]
  mov rax,[rax+rdi*8]
  ret
@@ -5371,6 +5741,12 @@ ui_theme_find:
  inc rbx
  cmp rbx,16
  jb .Lu_theme_find_next
+ mov rax,[rip+.Lu_custom_find]
+ test rax,rax
+ jz .Lu_theme_find_bad
+ mov rdi,r12
+ call rax
+ jmp .Lu_theme_find_done
 .Lu_theme_find_bad:
  mov rax,-1
  jmp .Lu_theme_find_done
@@ -6012,6 +6388,13 @@ ui_set_choice_preview_reader:
  pop rbx
  ret
 .Lu_choose_preview_key:
+ cmp qword ptr [rip+.Lu_view_only],0
+ je .Lu_choose_preview_session_key
+ cmp eax,8
+ je .Lu_choose_invalid
+ cmp eax,3
+ je .Lu_choose_invalid
+.Lu_choose_preview_session_key:
  cmp eax,8
  je .Lu_close_read_preview
  cmp eax,3
@@ -6084,6 +6467,10 @@ ui_set_choice_preview_reader:
  lea rdi,[rip+.Lu_bold]
  call .Lu_z
  lea rdi,[rip+.Lu_session_preview_title]
+ cmp qword ptr [rip+.Lu_view_only],0
+ je .Lu_read_title_ready
+ mov rdi,[rip+.Lu_choose_title]
+.Lu_read_title_ready:
  call .Lu_z
  call .Lu_reset_color
  mov rax,[rip+.Lu_choose_selection]
@@ -6151,6 +6538,10 @@ ui_set_choice_preview_reader:
  je .Lu_session_preview_hint_selected
  lea rdi,[rip+.Lu_session_preview_limited]
 .Lu_session_preview_hint_selected:
+ cmp qword ptr [rip+.Lu_view_only],0
+ je .Lu_read_hint_ready
+ lea rdi,[rip+.Lu_view_hint]
+.Lu_read_hint_ready:
  mov rsi,[rip+.Lu_columns]
  sub rsi,8
  call .Lu_field
@@ -6247,11 +6638,23 @@ ui_set_choice_preview_reader:
  mov qword ptr [rip+.Lu_resume_search_active],1
  jmp .Lu_choose_loop
 .Lu_resume_open_preview:
+ cmp qword ptr [rip+.Lu_multi_enabled],0
+ jne .Lu_multi_toggle
  cmp qword ptr [rip+.Lu_choice_reader],0
  je .Lu_choose_loop
  cmp qword ptr [rip+.Lu_filtered_count],0
  je .Lu_choose_loop
  call .Lu_open_read_preview
+ jmp .Lu_choose_loop
+.Lu_multi_toggle:
+ cmp qword ptr [rip+.Lu_filtered_count],0
+ je .Lu_choose_loop
+ mov rcx,[rip+.Lu_choose_selection]
+ cmp rcx,64
+ jae .Lu_choose_loop
+ mov rax,1
+ shl rax,cl
+ xor [rip+.Lu_multi_mask],rax
  jmp .Lu_choose_loop
 
 .section .rodata
@@ -6259,6 +6662,192 @@ ui_set_choice_preview_reader:
 .Lu_resume_search_label: .asciz "Search: "
 .Lu_resume_search_cursor: .asciz "▌"
 .Lu_resume_search_controls: .asciz "Type to search · Enter to commit · Esc to clear"
+.Lu_multi_controls: .asciz "Space to select · ↑↓ to navigate · Enter to delete · Esc to cancel"
+.Lu_checked: .asciz "☑ "
+.Lu_unchecked: .asciz "☐ "
+.Lu_prompt_controls: .asciz "Enter to save · Esc to cancel"
+.Lu_password_char: .asciz "*"
+.Lu_two_spaces: .asciz "  "
+.Lu_tabs_hint: .asciz "(Tab / ←→ to switch)"
+.Lu_view_hint: .asciz "↑↓/PgUp/PgDn to scroll · Esc back"
+.section .bss
+.Lu_multi_enabled: .skip 8
+.Lu_multi_mask: .skip 8
+.Lu_prompt_mode: .skip 8
+.Lu_prompt_secret: .skip 8
+.Lu_custom_catalog: .skip 8
+.Lu_custom_name: .skip 8
+.Lu_custom_find: .skip 8
+.Lu_custom_palette: .skip 8
+.Lu_custom_gradient: .skip 8
+.Lu_activity_hook: .skip 8
+.Lu_activity_busy: .skip 8
+.Lu_choice_tabs: .skip 8
+.Lu_choice_tabs_count: .skip 8
+.Lu_choice_tab_index: .skip 8
+.Lu_box_list_top: .skip 8
+.Lu_box_visible_start: .skip 8
+.Lu_box_visible_rows: .skip 8
+.Lu_choice_footer: .skip 8
+.Lu_view_only: .skip 8
+.Lu_view_item: .skip 24
+.Lu_numbered: .skip 4194304
+.section .text
+.globl ui_view_text
+# (titleZ,raw,len) displays a read-only, scrollable Markdown viewport.
+ui_view_text:
+ push rbx
+ push r12
+ push r13
+ mov r12,rdi
+ cmp rdx,1048575
+ ja .Lu_view_invalid
+ mov [rip+.Lu_read_raw_len],rdx
+ lea rdi,[rip+.Lu_read_raw]
+ mov rcx,rdx
+ rep movsb
+ mov qword ptr [rip+.Lu_view_only],1
+ mov [rip+.Lu_view_item],r12
+ mov edi,3
+ call ui_set_choice_layout
+ mov rdi,r12
+ lea rsi,[rip+.Lu_view_item]
+ mov edx,1
+ xor ecx,ecx
+ call ui_choose
+ mov qword ptr [rip+.Lu_view_only],0
+ xor edi,edi
+ call ui_set_choice_layout
+ xor eax,eax
+ jmp .Lu_view_return
+.Lu_view_invalid:
+ mov rax,-22
+.Lu_view_return:
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.globl ui_set_choice_tabs,ui_set_choice_footer
+ui_set_choice_tabs:
+ mov [rip+.Lu_choice_tabs],rdi
+ mov [rip+.Lu_choice_tabs_count],rsi
+ mov [rip+.Lu_choice_tab_index],rdx
+ ret
+ui_set_choice_footer:
+ mov [rip+.Lu_choice_footer],rdi
+ ret
+.Lu_manager_tabs_view:
+ push rbx
+ push r12
+ push r13
+ mov rdi,[rip+.Lu_box_top]
+ inc rdi
+ mov esi,5
+ call .Lu_move
+ xor ebx,ebx
+.Lu_manager_tabs_label:
+ cmp rbx,[rip+.Lu_choice_tabs_count]
+ jae .Lu_manager_tabs_hint
+ lea rdi,[rip+.Lu_muted]
+ cmp rbx,[rip+.Lu_choice_tab_index]
+ jne .Lu_manager_tab_style
+ lea rdi,[rip+.Lu_accent]
+ call .Lu_z
+ lea rdi,[rip+.Lu_inverse]
+.Lu_manager_tab_style:
+ call .Lu_z
+ lea rdi,[rip+.Lu_space]
+ call .Lu_z
+ mov rax,[rip+.Lu_choice_tabs]
+ mov rdi,[rax+rbx*8]
+ call .Lu_z
+ lea rdi,[rip+.Lu_space]
+ call .Lu_z
+ call .Lu_reset_color
+ lea rdi,[rip+.Lu_two_spaces]
+ call .Lu_z
+ inc rbx
+ jmp .Lu_manager_tabs_label
+.Lu_manager_tabs_hint:
+ lea rdi,[rip+.Lu_muted]
+ call .Lu_z
+ lea rdi,[rip+.Lu_tabs_hint]
+ call .Lu_z
+ call .Lu_reset_color
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.globl ui_set_custom_theme_hooks
+.globl ui_set_activity_hook
+ui_set_activity_hook:
+ mov [rip+.Lu_activity_hook],rdi
+ ret
+.globl ui_set_custom_gradient_hook
+ui_set_custom_gradient_hook:
+ mov [rip+.Lu_custom_gradient],rdi
+ ret
+ui_set_custom_theme_hooks:
+ mov [rip+.Lu_custom_catalog],rdi
+ mov [rip+.Lu_custom_name],rsi
+ mov [rip+.Lu_custom_find],rdx
+ mov [rip+.Lu_custom_palette],rcx
+ ret
+.globl ui_set_choice_multi,ui_get_choice_multi,ui_prompt_text
+.globl ui_prompt_secret
+ui_prompt_secret:
+ push rbx
+ mov qword ptr [rip+.Lu_prompt_secret],1
+ call ui_prompt_text
+ mov rbx,rax
+ mov qword ptr [rip+.Lu_prompt_secret],0
+ lea rdi,[rip+.Lu_query]
+ xor eax,eax
+ mov ecx,512
+ rep stosb
+ mov rax,rbx
+ pop rbx
+ ret
+ui_set_choice_multi:
+ mov [rip+.Lu_multi_enabled],rdi
+ mov qword ptr [rip+.Lu_multi_mask],0
+ ret
+ui_get_choice_multi:
+ mov rax,[rip+.Lu_multi_mask]
+ ret
+# Single-line text modal, sharing UTF-8 editing and cancellation with dialogs.
+# (titleZ,out,capacity including NUL) -> length/-1.
+ui_prompt_text:
+ push rbx
+ push r12
+ push r13
+ mov r12,rsi
+ mov r13,rdx
+ mov qword ptr [rip+.Lu_prompt_mode],1
+ xor esi,esi
+ xor edx,edx
+ xor ecx,ecx
+ call ui_choose
+ mov qword ptr [rip+.Lu_prompt_mode],0
+ test rax,rax
+ js .Lu_prompt_done
+ mov rbx,[rip+.Lu_query_len]
+ cmp rbx,r13
+ jae .Lu_prompt_failed
+ mov rdi,r12
+ lea rsi,[rip+.Lu_query]
+ mov rcx,rbx
+ rep movsb
+ mov byte ptr [rdi],0
+ mov rax,rbx
+ jmp .Lu_prompt_done
+.Lu_prompt_failed:
+ mov rax,-1
+.Lu_prompt_done:
+ pop r13
+ pop r12
+ pop rbx
+ ret
 
 .section .text
 # Source confirmation header: warning?; bolddefaulttool; muteddescription.
@@ -6330,6 +6919,25 @@ ui_set_choice_preview_reader:
  lea rdi,[r12+r15]
  mov rsi,r13
  sub rsi,r15
+ lea rdx,[rip+.Lu_numbered]
+ mov ecx,4194304
+ mov r8,[rip+.Lu_columns]
+ sub r8,4
+ mov r9,[rip+.Lu_theme_resolved]
+ sub rsp,16
+ mov qword ptr [rsp],0
+ call ui_format_numbered_preview
+ add rsp,16
+ test rax,rax
+ js .Lu_style_numbered_fallback
+ mov rsi,rax
+ lea rdi,[rip+.Lu_numbered]
+ jmp .Lu_style_numbered_put
+.Lu_style_numbered_fallback:
+ lea rdi,[r12+r15]
+ mov rsi,r13
+ sub rsi,r15
+.Lu_style_numbered_put:
  call .Lu_put
  mov rax,[rip+.Lu_builder+16]
  mov rbx,rax
@@ -6343,6 +6951,717 @@ ui_set_choice_preview_reader:
  mov rax,-1
 .Lu_style_approval_done:
  add rsp,32
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+
+.section .rodata
+.Lu_mouse_all_mode: .asciz "\033[?1002l\033[?1003h"
+.Lu_mouse_drag_mode: .asciz "\033[?1003l\033[?1002h"
+.section .bss
+.Lu_mouse_packet: .skip 32
+.Lu_mouse_drag: .skip 8
+.Lu_mouse_dragged: .skip 8
+.Lu_mouse_grab: .skip 8
+.Lu_mouse_last_x: .skip 8
+.Lu_mouse_last_y: .skip 8
+.Lu_mouse_last_time: .skip 8
+.Lu_mouse_clicks: .skip 8
+.Lu_mouse_selection: .skip 16
+.Lu_transcript_selected: .skip 8
+.Lu_selection_anchor_row: .skip 8
+.Lu_selection_anchor_col: .skip 8
+.Lu_selection_focus_row: .skip 8
+.Lu_selection_focus_col: .skip 8
+.section .text
+.Lu_pointer_event:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ lea rdi,[rip+.Lu_context]
+ lea rsi,[rip+.Lu_mouse_packet]
+ call input_mouse_snapshot
+ mov r12,[rip+.Lu_mouse_packet]
+ test r12d,192
+ jnz .Lu_pointer_none
+ mov r13,[rip+.Lu_mouse_packet+8]
+ mov r14,[rip+.Lu_mouse_packet+16]
+ mov r15,[rip+.Lu_mouse_packet+24]
+ mov eax,r12d
+ and eax,3
+ cmp eax,2
+ je .Lu_pointer_context
+ test r15,r15
+ jnz .Lu_pointer_release
+ test r12d,32
+ jnz .Lu_pointer_move
+ test eax,eax
+ jnz .Lu_pointer_none
+ # Menus receive hover/press selection before editor hit-testing.
+ cmp qword ptr [rip+.Lu_menu_count],0
+ je .Lu_pointer_scrollbar_press
+ mov rax,[rip+.Lu_composer_top]
+ add rax,[rip+.Lu_composer_rows]
+ add rax,2
+ mov rdx,r14
+ sub rdx,rax
+ js .Lu_pointer_scrollbar_press
+ cmp rdx,5
+ jae .Lu_pointer_scrollbar_press
+ cmp rdx,[rip+.Lu_menu_count]
+ jae .Lu_pointer_scrollbar_press
+ mov [rip+.Lu_menu_index],rdx
+ mov qword ptr [rip+.Lu_mouse_drag],4
+ jmp .Lu_pointer_changed
+.Lu_pointer_scrollbar_press:
+ cmp r13,[rip+.Lu_columns]
+ jne .Lu_pointer_editor_press
+ cmp r14,[rip+.Lu_view_height]
+ ja .Lu_pointer_none
+ mov qword ptr [rip+.Lu_mouse_drag],3
+ mov qword ptr [rip+.Lu_mouse_grab],0
+ jmp .Lu_pointer_scrollbar
+.Lu_pointer_editor_press:
+ mov rax,[rip+.Lu_composer_top]
+ inc rax
+ cmp r14,rax
+ jb .Lu_pointer_transcript_press
+ add rax,[rip+.Lu_composer_rows]
+ cmp r14,rax
+ jae .Lu_pointer_none
+ mov qword ptr [rip+.Lu_mouse_drag],1
+ mov qword ptr [rip+.Lu_mouse_dragged],0
+ mov qword ptr [rip+.Lu_transcript_selected],0
+ mov ecx,r12d
+ and ecx,4
+ call .Lu_pointer_editor_position
+ mov rax,[rip+.Lu_lasttick]
+ mov rdx,rax
+ sub rdx,[rip+.Lu_mouse_last_time]
+ cmp rdx,400
+ ja .Lu_pointer_first_click
+ cmp r13,[rip+.Lu_mouse_last_x]
+ jne .Lu_pointer_first_click
+ cmp r14,[rip+.Lu_mouse_last_y]
+ jne .Lu_pointer_first_click
+ inc qword ptr [rip+.Lu_mouse_clicks]
+ cmp qword ptr [rip+.Lu_mouse_clicks],3
+ jbe .Lu_pointer_click_counted
+.Lu_pointer_first_click:
+ mov qword ptr [rip+.Lu_mouse_clicks],1
+.Lu_pointer_click_counted:
+ mov [rip+.Lu_mouse_last_time],rax
+ mov [rip+.Lu_mouse_last_x],r13
+ mov [rip+.Lu_mouse_last_y],r14
+ cmp qword ptr [rip+.Lu_mouse_clicks],2
+ jne .Lu_pointer_not_double
+ lea rdi,[rip+.Lu_context]
+ call input_select_word
+ jmp .Lu_pointer_changed
+.Lu_pointer_not_double:
+ cmp qword ptr [rip+.Lu_mouse_clicks],3
+ jne .Lu_pointer_changed
+ lea rdi,[rip+.Lu_context]
+ call input_select_line
+ jmp .Lu_pointer_changed
+.Lu_pointer_transcript_press:
+ cmp r14,1
+ jb .Lu_pointer_none
+ cmp r14,[rip+.Lu_view_height]
+ ja .Lu_pointer_none
+ lea rax,[r14-1]
+ add rax,[rip+.Lu_view_start]
+ cmp rax,[rip+.Lu_linecount]
+ jae .Lu_pointer_none
+ mov [rip+.Lu_selection_anchor_row],rax
+ mov [rip+.Lu_selection_focus_row],rax
+ lea rdx,[r13-1]
+ mov [rip+.Lu_selection_anchor_col],rdx
+ mov [rip+.Lu_selection_focus_col],rdx
+ mov qword ptr [rip+.Lu_transcript_selected],1
+ mov qword ptr [rip+.Lu_mouse_drag],2
+ jmp .Lu_pointer_changed
+.Lu_pointer_move:
+ cmp qword ptr [rip+.Lu_mouse_drag],0
+ jne .Lu_pointer_dragging
+ # With any-motion reporting, hover changes completion focus without submitting.
+ cmp qword ptr [rip+.Lu_menu_count],0
+ je .Lu_pointer_none
+ mov rax,[rip+.Lu_composer_top]
+ add rax,[rip+.Lu_composer_rows]
+ add rax,2
+ mov rdx,r14
+ sub rdx,rax
+ js .Lu_pointer_none
+ cmp rdx,5
+ jae .Lu_pointer_none
+ cmp rdx,[rip+.Lu_menu_count]
+ jae .Lu_pointer_none
+ mov [rip+.Lu_menu_index],rdx
+ jmp .Lu_pointer_changed
+.Lu_pointer_dragging:
+ mov qword ptr [rip+.Lu_mouse_dragged],1
+ cmp qword ptr [rip+.Lu_mouse_drag],3
+ je .Lu_pointer_scrollbar
+ cmp qword ptr [rip+.Lu_mouse_drag],2
+ je .Lu_pointer_transcript_move
+ cmp qword ptr [rip+.Lu_mouse_drag],1
+ jne .Lu_pointer_none
+ mov ecx,1
+ call .Lu_pointer_editor_position
+ jmp .Lu_pointer_changed
+.Lu_pointer_transcript_move:
+ mov rax,r14
+ cmp rax,1
+ jae .Lu_pointer_transcript_min
+ mov eax,1
+.Lu_pointer_transcript_min:
+ cmp rax,[rip+.Lu_view_height]
+ cmova rax,[rip+.Lu_view_height]
+ dec rax
+ add rax,[rip+.Lu_view_start]
+ mov [rip+.Lu_selection_focus_row],rax
+ lea rax,[r13-1]
+ mov [rip+.Lu_selection_focus_col],rax
+ jmp .Lu_pointer_changed
+.Lu_pointer_scrollbar:
+ mov rax,[rip+.Lu_linecount]
+ mov rcx,[rip+.Lu_view_height]
+ cmp rax,rcx
+ jbe .Lu_pointer_none
+ lea rdx,[r14-1]
+ imul rax,rdx
+ xor edx,edx
+ test rcx,rcx
+ jz .Lu_pointer_none
+ div rcx
+ mov rdx,[rip+.Lu_linecount]
+ sub rdx,rcx
+ sub rdx,rax
+ jns .Lu_pointer_scroll_store
+ xor edx,edx
+.Lu_pointer_scroll_store:
+ mov [rip+.Lu_scroll],rdx
+ jmp .Lu_pointer_changed
+.Lu_pointer_release:
+ mov rbx,[rip+.Lu_mouse_drag]
+ mov qword ptr [rip+.Lu_mouse_drag],0
+ cmp rbx,4
+ jne .Lu_pointer_release_not_menu
+ mov eax,INPUT_MENU_ACCEPT
+ jmp .Lu_pointer_done
+.Lu_pointer_release_not_menu:
+ cmp rbx,1
+ jne .Lu_pointer_release_transcript
+ lea rdi,[rip+.Lu_context]
+ lea rsi,[rip+.Lu_mouse_selection]
+ call input_selection
+ test rax,rax
+ jz .Lu_pointer_changed
+ mov rdi,[rip+.Lu_mouse_selection]
+ mov rsi,[rip+.Lu_mouse_selection+8]
+ call ui_copy_text
+ jmp .Lu_pointer_changed
+.Lu_pointer_release_transcript:
+ cmp rbx,2
+ jne .Lu_pointer_changed
+ call .Lu_copy_transcript_selection
+ jmp .Lu_pointer_changed
+.Lu_pointer_context:
+ test r15,r15
+ jnz .Lu_pointer_none
+ # This opens the same explicit terminal clipboard operation as /copy.
+ call ui_last_assistant
+ test rax,rax
+ jz .Lu_pointer_none
+ mov rdi,rax
+ mov rsi,rdx
+ call ui_copy_text
+ jmp .Lu_pointer_changed
+.Lu_pointer_editor_position:
+ lea rdi,[rip+.Lu_context]
+ mov rsi,r14
+ sub rsi,[rip+.Lu_composer_top]
+ dec rsi
+ jns .Lu_pointer_editor_row
+ xor esi,esi
+.Lu_pointer_editor_row:
+ add rsi,[rip+.Lu_editor_scroll]
+ lea rdx,[r13-3]
+ test rdx,rdx
+ jns .Lu_pointer_editor_col
+ xor edx,edx
+.Lu_pointer_editor_col:
+ jmp input_pointer
+.Lu_pointer_changed:
+ mov eax,INPUT_CHANGED
+ jmp .Lu_pointer_done
+.Lu_pointer_none:
+ xor eax,eax
+.Lu_pointer_done:
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.section .bss
+.Lu_selection_first_row: .skip 8
+.Lu_selection_first_col: .skip 8
+.Lu_selection_last_row: .skip 8
+.Lu_selection_last_col: .skip 8
+.Lu_mouse_plain: .skip 4194304
+.Lu_selection_copy: .skip 1048576
+.section .data
+.Lu_selection_copy_builder: .quad .Lu_selection_copy,1048576,0
+.section .text
+.Lu_selection_bounds:
+ mov r8,[rip+.Lu_selection_anchor_row]
+ mov r9,[rip+.Lu_selection_anchor_col]
+ mov r10,[rip+.Lu_selection_focus_row]
+ mov r11,[rip+.Lu_selection_focus_col]
+ cmp r8,r10
+ jb .Lu_selection_ordered
+ ja .Lu_selection_swap
+ cmp r9,r11
+ jbe .Lu_selection_ordered
+.Lu_selection_swap:
+ xchg r8,r10
+ xchg r9,r11
+.Lu_selection_ordered:
+ mov [rip+.Lu_selection_first_row],r8
+ mov [rip+.Lu_selection_first_col],r9
+ mov [rip+.Lu_selection_last_row],r10
+ mov [rip+.Lu_selection_last_col],r11
+ ret
+# Select bytes only at extended-grapheme boundaries, measured in terminal cells.
+.Lu_mouse_column:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ mov r12,rdi
+ mov r13,rsi
+ mov r14,rdx
+ xor r15d,r15d
+ xor ebx,ebx
+.Lu_mouse_column_next:
+ cmp r15,r13
+ jae .Lu_mouse_column_done
+ cmp rbx,r14
+ jae .Lu_mouse_column_done
+ mov rdi,r12
+ mov rsi,r13
+ mov rdx,r15
+ call ui_next_grapheme
+ push rax
+ sub rsp,8
+ lea rdi,[r12+r15]
+ mov rsi,rax
+ sub rsi,r15
+ call ui_text_width
+ lea rcx,[rbx+rax]
+ cmp rcx,r14
+ ja .Lu_mouse_column_inside
+ add rbx,rax
+ add rsp,8
+ pop r15
+ jmp .Lu_mouse_column_next
+.Lu_mouse_column_inside:
+ add rsp,16
+.Lu_mouse_column_done:
+ mov rax,r15
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.Lu_copy_transcript_selection:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ cmp qword ptr [rip+.Lu_transcript_selected],0
+ je .Lu_copy_selection_done
+ call .Lu_selection_bounds
+ mov r12,r8
+ mov r13,r10
+ mov qword ptr [rip+.Lu_selection_copy_builder+16],0
+.Lu_copy_selection_row:
+ cmp r12,r13
+ ja .Lu_copy_selection_send
+ cmp r12,[rip+.Lu_linecount]
+ jae .Lu_copy_selection_send
+ lea rax,[rip+.Lu_indices]
+ mov rdx,[rax+r12*8]
+ mov rsi,[rax+r12*8+8]
+ sub rsi,rdx
+ lea rdi,[rip+.Lu_flow]
+ add rdi,rdx
+ lea rdx,[rip+.Lu_mouse_plain]
+ mov ecx,4194304
+ call ui_sanitize
+ test rax,rax
+ js .Lu_copy_selection_done
+ mov r14,rax
+ lea rdx,[rip+.Lu_mouse_plain]
+.Lu_copy_selection_trim:
+ test r14,r14
+ jz .Lu_copy_selection_start
+ mov al,[rdx+r14-1]
+ cmp al,10
+ je .Lu_copy_selection_trim_byte
+ cmp al,13
+ jne .Lu_copy_selection_start
+.Lu_copy_selection_trim_byte:
+ dec r14
+ jmp .Lu_copy_selection_trim
+.Lu_copy_selection_start:
+ xor edx,edx
+ cmp r12,[rip+.Lu_selection_first_row]
+ jne .Lu_copy_selection_start_ready
+ mov rdx,[rip+.Lu_selection_first_col]
+.Lu_copy_selection_start_ready:
+ lea rdi,[rip+.Lu_mouse_plain]
+ mov rsi,r14
+ call .Lu_mouse_column
+ mov r15,rax
+ mov edx,65536
+ cmp r12,[rip+.Lu_selection_last_row]
+ jne .Lu_copy_selection_end_ready
+ mov rdx,[rip+.Lu_selection_last_col]
+.Lu_copy_selection_end_ready:
+ lea rdi,[rip+.Lu_mouse_plain]
+ mov rsi,r14
+ call .Lu_mouse_column
+ mov rdx,rax
+ sub rdx,r15
+ jbe .Lu_copy_selection_next
+ lea rsi,[rip+.Lu_mouse_plain]
+ add rsi,r15
+ lea rdi,[rip+.Lu_selection_copy_builder]
+ call qx_cat
+ test rax,rax
+ js .Lu_copy_selection_done
+.Lu_copy_selection_next:
+ cmp r12,r13
+ je .Lu_copy_selection_send
+ lea rdi,[rip+.Lu_selection_copy_builder]
+ lea rsi,[rip+.Lu_mouse_selection_newline]
+ mov edx,1
+ call qx_cat
+ test rax,rax
+ js .Lu_copy_selection_done
+ inc r12
+ jmp .Lu_copy_selection_row
+.Lu_copy_selection_send:
+ mov rsi,[rip+.Lu_selection_copy_builder+16]
+ test rsi,rsi
+ jz .Lu_copy_selection_done
+ lea rdi,[rip+.Lu_selection_copy]
+ call ui_copy_text
+.Lu_copy_selection_done:
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.section .rodata
+.Lu_mouse_selection_newline: .byte 10
+.section .rodata
+.Lu_agent_project_group: .asciz "Project Level"
+.Lu_agent_user_group: .asciz "User Level"
+.Lu_agent_builtin_group: .asciz "Built-in Agents"
+.Lu_agent_builtin_suffix: .asciz " (built-in)"
+.Lu_agent_marker: .asciz "●︎ "
+.Lu_agent_using: .asciz "Using: "
+.Lu_agent_count_suffix: .asciz " agents"
+.section .bss
+.Lu_agent_project_count: .skip 8
+.Lu_agent_user_count: .skip 8
+.Lu_agent_hit_count: .skip 8
+.Lu_agent_hit_rows: .skip 256*8
+.Lu_agent_hit_indices: .skip 256*8
+.section .text
+.globl ui_set_agent_groups
+ui_set_agent_groups:
+ mov [rip+.Lu_agent_project_count],rdi
+ mov [rip+.Lu_agent_user_count],rsi
+ ret
+.Lu_agents_list_view:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ mov qword ptr [rip+.Lu_agent_hit_count],0
+ mov r12,[rip+.Lu_box_top]
+ add r12,4
+ mov r13,[rip+.Lu_box_top]
+ add r13,[rip+.Lu_box_height]
+ sub r13,5
+ xor ebx,ebx
+ # Keep the selected row visible. Group boundaries consume two display rows.
+ mov rax,[rip+.Lu_filtered_selection]
+ mov rcx,r13
+ sub rcx,r12
+ sub rcx,3
+ cmp rcx,1
+ jae .Lu_agents_visible_budget
+ mov ecx,1
+.Lu_agents_visible_budget:
+ cmp rax,rcx
+ jb .Lu_agents_start
+ mov rbx,rax
+ sub rbx,rcx
+ inc rbx
+.Lu_agents_start:
+ mov r14,-1
+.Lu_agents_row:
+ cmp rbx,[rip+.Lu_filtered_count]
+ jae .Lu_agents_using
+ cmp r12,r13
+ jae .Lu_agents_using
+ lea rax,[rip+.Lu_filtered]
+ mov r15,[rax+rbx*8]
+ mov edx,2
+ cmp r15,[rip+.Lu_agent_project_count]
+ jb .Lu_agents_is_project
+ mov rax,[rip+.Lu_agent_project_count]
+ add rax,[rip+.Lu_agent_user_count]
+ cmp r15,rax
+ jae .Lu_agents_group_ready
+ mov edx,1
+ jmp .Lu_agents_group_ready
+.Lu_agents_is_project:
+ xor edx,edx
+.Lu_agents_group_ready:
+ cmp rdx,r14
+ je .Lu_agents_item
+ mov r14,rdx
+ mov rdi,r12
+ mov esi,5
+ call .Lu_move
+ lea rdi,[rip+.Lu_primary]
+ call .Lu_z
+ lea rdi,[rip+.Lu_bold]
+ call .Lu_z
+ lea rdi,[rip+.Lu_agent_builtin_group]
+ cmp r14,2
+ je .Lu_agents_group_label
+ lea rdi,[rip+.Lu_agent_user_group]
+ cmp r14,1
+ je .Lu_agents_group_label
+ lea rdi,[rip+.Lu_agent_project_group]
+.Lu_agents_group_label:
+ call .Lu_z
+ call .Lu_reset_color
+ add r12,2
+ cmp r12,r13
+ jae .Lu_agents_using
+.Lu_agents_item:
+ mov rax,[rip+.Lu_agent_hit_count]
+ lea rdx,[rip+.Lu_agent_hit_rows]
+ mov [rdx+rax*8],r12
+ lea rdx,[rip+.Lu_agent_hit_indices]
+ mov [rdx+rax*8],rbx
+ inc qword ptr [rip+.Lu_agent_hit_count]
+ mov rdi,r12
+ mov esi,5
+ call .Lu_move
+ lea rdi,[rip+.Lu_primary]
+ cmp rbx,[rip+.Lu_filtered_selection]
+ jne .Lu_agents_item_color
+ lea rdi,[rip+.Lu_accent]
+.Lu_agents_item_color:
+ call .Lu_z
+ lea rdi,[rip+.Lu_two_spaces]
+ cmp rbx,[rip+.Lu_filtered_selection]
+ jne .Lu_agents_item_marker
+ lea rdi,[rip+.Lu_agent_marker]
+.Lu_agents_item_marker:
+ call .Lu_z
+ imul rax,r15,24
+ add rax,[rip+.Lu_choose_items]
+ mov rdi,[rax]
+ lea rsi,[rip+.Lu_clean]
+ mov edx,4096
+ call .Lu_copyz_clean
+ lea rdi,[rip+.Lu_clean]
+ mov rsi,[rip+.Lu_columns]
+ sub rsi,12
+ cmp r14,2
+ jne .Lu_agents_item_label
+ sub rsi,11
+.Lu_agents_item_label:
+ push rsi
+ sub rsp,8
+ call qx_strlen
+ mov rsi,rax
+ lea rdi,[rip+.Lu_clean]
+ call ui_text_width
+ add rsp,8
+ pop rsi
+ cmp rax,rsi
+ cmovb rsi,rax
+ lea rdi,[rip+.Lu_clean]
+ call .Lu_field
+ cmp r14,2
+ jne .Lu_agents_item_next
+ lea rdi,[rip+.Lu_muted]
+ cmp rbx,[rip+.Lu_filtered_selection]
+ jne .Lu_agents_suffix_style
+ lea rdi,[rip+.Lu_accent]
+.Lu_agents_suffix_style:
+ call .Lu_z
+ lea rdi,[rip+.Lu_agent_builtin_suffix]
+ call .Lu_z
+.Lu_agents_item_next:
+ inc r12
+ inc rbx
+ jmp .Lu_agents_row
+.Lu_agents_using:
+ mov rdi,r13
+ mov esi,5
+ call .Lu_move
+ lea rdi,[rip+.Lu_muted]
+ call .Lu_z
+ lea rdi,[rip+.Lu_agent_using]
+ call .Lu_z
+ lea rdi,[rip+.Lu_bytes]
+ mov rsi,[rip+.Lu_choose_count]
+ call qx_uint
+ lea rdi,[rip+.Lu_bytes]
+ mov rsi,rax
+ call .Lu_put
+ lea rdi,[rip+.Lu_agent_count_suffix]
+ call .Lu_z
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.section .rodata
+.Lu_extensions_none: .asciz "No plugins or MCP servers installed."
+.Lu_extensions_none_hint: .asciz "Use the Discover tab to find and install plugins."
+.section .text
+.Lu_extensions_list_view:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ mov qword ptr [rip+.Lu_agent_hit_count],0
+ mov r12,[rip+.Lu_box_top]
+ add r12,3
+ cmp qword ptr [rip+.Lu_filtered_count],0
+ jne .Lu_extensions_has_items
+ mov rdi,r12
+ mov esi,5
+ call .Lu_move
+ lea rdi,[rip+.Lu_muted]
+ call .Lu_z
+ lea rdi,[rip+.Lu_extensions_none]
+ cmp qword ptr [rip+.Lu_choice_tab_index],0
+ je .Lu_extensions_empty_label
+ mov rdi,[rip+.Lu_choice_empty]
+ test rdi,rdi
+ jnz .Lu_extensions_empty_label
+ lea rdi,[rip+.Lu_no_entries]
+.Lu_extensions_empty_label:
+ mov rsi,[rip+.Lu_columns]
+ sub rsi,10
+ call .Lu_field
+ cmp qword ptr [rip+.Lu_choice_tab_index],0
+ jne .Lu_extensions_view_done
+ lea rdi,[r12+1]
+ mov esi,5
+ call .Lu_move
+ lea rdi,[rip+.Lu_extensions_none_hint]
+ mov rsi,[rip+.Lu_columns]
+ sub rsi,10
+ call .Lu_field
+ jmp .Lu_extensions_view_done
+.Lu_extensions_has_items:
+ mov r13,[rip+.Lu_box_top]
+ add r13,[rip+.Lu_box_height]
+ sub r13,3
+ mov rax,r13
+ sub rax,r12
+ shr rax,1
+ mov r14,[rip+.Lu_filtered_selection]
+ sub r14,rax
+ inc r14
+ jns .Lu_extensions_first_item
+ xor r14d,r14d
+.Lu_extensions_first_item:
+ cmp r12,r13
+ jae .Lu_extensions_view_done
+ cmp r14,[rip+.Lu_filtered_count]
+ jae .Lu_extensions_view_done
+ mov rax,[rip+.Lu_agent_hit_count]
+ lea rdx,[rip+.Lu_agent_hit_rows]
+ mov [rdx+rax*8],r12
+ lea rdx,[rip+.Lu_agent_hit_indices]
+ mov [rdx+rax*8],r14
+ inc qword ptr [rip+.Lu_agent_hit_count]
+ mov rdi,r12
+ mov esi,5
+ call .Lu_move
+ lea rdi,[rip+.Lu_primary]
+ cmp r14,[rip+.Lu_filtered_selection]
+ jne .Lu_extensions_item_color
+ lea rdi,[rip+.Lu_accent]
+.Lu_extensions_item_color:
+ call .Lu_z
+ lea rdi,[rip+.Lu_two_spaces]
+ cmp r14,[rip+.Lu_filtered_selection]
+ jne .Lu_extensions_item_marker
+ lea rdi,[rip+.Lu_agent_marker]
+.Lu_extensions_item_marker:
+ call .Lu_z
+ lea rax,[rip+.Lu_filtered]
+ mov rax,[rax+r14*8]
+ imul r15,rax,24
+ add r15,[rip+.Lu_choose_items]
+ mov rdi,[r15]
+ lea rsi,[rip+.Lu_clean]
+ mov edx,4096
+ call .Lu_copyz_clean
+ lea rdi,[rip+.Lu_clean]
+ mov rsi,[rip+.Lu_columns]
+ sub rsi,12
+ call .Lu_field
+ mov rdi,[r15+8]
+ test rdi,rdi
+ jz .Lu_extensions_item_next
+ lea rsi,[rip+.Lu_clean]
+ mov edx,4096
+ call .Lu_copyz_clean
+ lea rdi,[r12+1]
+ mov esi,7
+ call .Lu_move
+ lea rdi,[rip+.Lu_muted]
+ call .Lu_z
+ lea rdi,[rip+.Lu_clean]
+ mov rsi,[rip+.Lu_columns]
+ sub rsi,14
+ call .Lu_field
+.Lu_extensions_item_next:
+ add r12,2
+ inc r14
+ jmp .Lu_extensions_first_item
+.Lu_extensions_view_done:
  pop r15
  pop r14
  pop r13

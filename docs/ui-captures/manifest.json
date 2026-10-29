@@ -1,7 +1,7 @@
 {
   "reference_version": "0.24.5",
   "scope": "Paired actual terminal captures from the parity, dialog, rich-response and saved-session fixture books. No overall parity pass is asserted.",
-  "paired_states": 23,
+  "paired_states": 25,
   "frames": [
     {
       "state": "approval",
@@ -15,7 +15,7 @@
       "state": "approval",
       "client": "native",
       "image": "native/approval.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -31,7 +31,23 @@
       "state": "dialog-agents-manage",
       "client": "native",
       "image": "native/dialog-agents-manage.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-auth",
+      "client": "reference",
+      "image": "reference/dialog-auth.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-auth",
+      "client": "native",
+      "image": "native/dialog-auth.png",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -47,7 +63,7 @@
       "state": "dialog-extensions",
       "client": "native",
       "image": "native/dialog-extensions.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -63,7 +79,7 @@
       "state": "dialog-help",
       "client": "native",
       "image": "native/dialog-help.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -79,7 +95,7 @@
       "state": "dialog-model",
       "client": "native",
       "image": "native/dialog-model.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -95,7 +111,23 @@
       "state": "dialog-resume",
       "client": "native",
       "image": "native/dialog-resume.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-settings",
+      "client": "reference",
+      "image": "reference/dialog-settings.png",
+      "binary_sha256": null,
+      "columns": 100,
+      "rows": 30
+    },
+    {
+      "state": "dialog-settings",
+      "client": "native",
+      "image": "native/dialog-settings.png",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -111,7 +143,7 @@
       "state": "dialog-theme",
       "client": "native",
       "image": "native/dialog-theme.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -127,7 +159,7 @@
       "state": "initial-100x30",
       "client": "native",
       "image": "native/initial-100x30.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -143,7 +175,7 @@
       "state": "initial-120x40",
       "client": "native",
       "image": "native/initial-120x40.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 120,
       "rows": 40
     },
@@ -159,7 +191,7 @@
       "state": "initial-80x24",
       "client": "native",
       "image": "native/initial-80x24.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 80,
       "rows": 24
     },
@@ -175,7 +207,7 @@
       "state": "long-response",
       "client": "native",
       "image": "native/long-response.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -191,7 +223,7 @@
       "state": "markdown",
       "client": "native",
       "image": "native/markdown.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -207,7 +239,7 @@
       "state": "resized",
       "client": "native",
       "image": "native/resized.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 80,
       "rows": 24
     },
@@ -223,7 +255,7 @@
       "state": "rich-math",
       "client": "native",
       "image": "native/rich-math.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -239,7 +271,7 @@
       "state": "rich-mermaid",
       "client": "native",
       "image": "native/rich-mermaid.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -255,7 +287,7 @@
       "state": "rich-table",
       "client": "native",
       "image": "native/rich-table.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -271,7 +303,7 @@
       "state": "scrolled",
       "client": "native",
       "image": "native/scrolled.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -287,7 +319,7 @@
       "state": "session-picker-populated",
       "client": "native",
       "image": "native/session-picker-populated.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -303,7 +335,7 @@
       "state": "session-preview-scrolled",
       "client": "native",
       "image": "native/session-preview-scrolled.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -319,7 +351,7 @@
       "state": "session-preview-top",
       "client": "native",
       "image": "native/session-preview-top.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -335,7 +367,7 @@
       "state": "session-resumed",
       "client": "native",
       "image": "native/session-resumed.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -351,7 +383,7 @@
       "state": "slash-completion",
       "client": "native",
       "image": "native/slash-completion.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     },
@@ -367,7 +399,7 @@
       "state": "tool-complete",
       "client": "native",
       "image": "native/tool-complete.png",
-      "binary_sha256": "371f938c8c4eb5d5c7708e6ee5873c75d625d0f13885b2a7b97fcabfab183cf1",
+      "binary_sha256": "510235a44a6d2ea00720a7592695b9a3eaf8e2c68b0f5918628cd6e43471b577",
       "columns": 100,
       "rows": 30
     }

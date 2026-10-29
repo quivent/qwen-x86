@@ -1,20 +1,20 @@
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   │
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           │
+                                                                                                   █
+  > /extensions                                                                                    █
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+  │  Installed    Discover    Sources   (Tab / ←→ to switch)                                     │
+  │                                                                                              │
+  │ No plugins or MCP servers installed.                                                         │
+  │ Use the Discover tab to find and install plugins.                                            │
+  │                                                                                              │
+  │ ↑↓ navigate · Space enable/disable · f favorite · Enter details · Esc close                  │
+  └──────────────────────────────────────────────────────────────────────────────────────────────┘
 
-   ▄▄▄▄▄▄  ▄▄     ▄▄ ▄▄▄▄▄▄▄ ▄▄▄    ▄▄   ┌───────────────────────────────────────────────────────┐
-  ██╔═══██╗██║    ██║██╔════╝████╗  ██║  │ >_ Qwen Code (native x86-64)                          │
-  ██║   ██║██║ █╗ ██║█████╗  ██╔██╗ ██║  │                                                       │
-  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │
-  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-1ew41g0c/workspace           │
-   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘
 
-  Tips: Add a QWEN.md file to give Qwen Code persistent project context.
 
-  ✗ Command unavailable in the native client. Use /help to see supported commands.
 
-────────────────────────────────────────────────────────────────────────────────────────────────────
->   Type your message or @path/to/file
-────────────────────────────────────────────────────────────────────────────────────────────────────
-  ➜ workspace · bench-model
-  ⏸ Ask permissions (shift + tab to cycle)
 
 
 

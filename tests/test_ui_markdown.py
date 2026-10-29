@@ -31,6 +31,8 @@ class MarkdownTests(unittest.TestCase):
   cls.lib.ui_format_markdown.argtypes=[ctypes.c_void_p,ctypes.c_size_t,ctypes.c_void_p,ctypes.c_size_t,ctypes.c_size_t]
   cls.lib.ui_format_markdown_ex.argtypes=cls.lib.ui_format_markdown.argtypes+[ctypes.c_size_t]
   cls.lib.ui_format_markdown_ex.restype=ctypes.c_int64
+  cls.lib.ui_format_numbered_preview.argtypes=cls.lib.ui_format_markdown_ex.argtypes+[ctypes.c_char_p]
+  cls.lib.ui_format_numbered_preview.restype=ctypes.c_int64
   cls.lib.ui_format_markdown_source.argtypes=cls.lib.ui_format_markdown_ex.argtypes+[ctypes.c_size_t]
   cls.lib.ui_format_markdown_source.restype=ctypes.c_int64
   cls.lib.ui_format_markdown_full.argtypes=cls.lib.ui_format_markdown_source.argtypes+[ctypes.c_size_t]
@@ -133,8 +135,21 @@ class MarkdownTests(unittest.TestCase):
   self.assertEqual(len(set(widths)),1);self.assertLessEqual(widths[0],40)
   self.assertIn('世界',plain);self.assertIn('long value here',plain);self.assertNotIn(':---',plain)
   narrow=self.plain(raw,width=24)
-  self.assertIn('Name: long value here',narrow)
-  self.assertIn('Value: 99',narrow)
+  self.assertIn('│ long     │       │',narrow)
+  self.assertIn('│ value    │    99 │',narrow)
+  self.assertIn('│ here     │       │',narrow)
+ def test_source_table_width_distribution_wrapping_and_vertical_threshold(self):
+  raw='| Name | Value |\n| :--- | ---: |\n| 世界 | 2 |\n| long value here | 99 |\n'
+  plain=self.plain(raw,width=24)
+  self.assertIn('┌──────────┬───────┐',plain)
+  for line in plain.splitlines():
+   if line:self.assertEqual(self.lib.ui_text_width(line.encode(),len(line.encode())),20)
+  # Source vertical-centers short cells and retains styling across word wraps.
+  raw='| Name | Value |\n|---|---|\n| **alpha beta gamma delta** | x |\n'
+  out=self.render(raw,width=26);plain=SGR.sub(b'',out).decode()
+  self.assertNotIn('**',plain);self.assertIn('│ alpha beta │       │',plain);self.assertIn('│ gamma      │ x     │',plain);self.assertIn('│ delta      │       │',plain)
+  raw='| Name | Value |\n|---|---|\n| one two three four five six seven eight nine ten eleven twelve | x |\n'
+  plain=self.plain(raw,width=24);self.assertIn('Name: one two',plain);self.assertNotIn('┌',plain)
  def test_controls_csi_osc_dcs_and_invalid_utf8_are_sanitized(self):
   raw=b'hello\x1b[2J\x1b[31mred\x1b[0m\x00\x03\r\n\x1b]52;c;SECRET\x07end\x1bPPRIVATE\x1b\\!\xc0\xaf\xed\xa0\x80'
   n,out=self.call(raw,sanitize=True);self.assertGreater(n,0)
@@ -230,7 +245,7 @@ class MarkdownTests(unittest.TestCase):
   expected='Result\n\nUI_CASE_MARKDOWN_DONE\n\nThis is bold, italic, and inline code.\n\n 1 print("Hello, world")\n\n - First item\n - Second item\n\n │ A quoted line\n'
   self.assertEqual(SGR.sub(b'',out).decode(),expected)
   self.assertIn(b'\x1b[38;2;173;216;230minline code',out)
-  self.assertIn(b'\x1b[38;2;191;189;182mprint(',out)
+  self.assertIn(b'\x1b[38;2;191;189;182mprint',out)
   self.assertIn(b'\x1b[38;2;170;217;76m"Hello, world"',out)
   fixture=ROOT/'docs/ui-captures/reference/markdown.json'
   if fixture.exists():
@@ -296,6 +311,24 @@ class MarkdownTests(unittest.TestCase):
   self.assertEqual(self.lib.ui_extract_math(raw,len(raw),1,out,2),-28)
   self.assertEqual(self.lib.ui_math_count(b'',0),0)
   self.assertEqual(self.lib.ui_math_count(None,10),-22)
+ def test_numbered_tool_preview_reuses_language_and_source_gutter_colors(self):
+  raw=b' 8 def f(x):\n 9     return "hello"\n10 # actual physical line\n'
+  out=ctypes.create_string_buffer(65536)
+  n=self.lib.ui_format_numbered_preview(raw,len(raw),out,len(out),80,0,b'python')
+  self.assertGreater(n,0);data=out.raw[:n];self.assertEqual(SGR.sub(b'',data),raw)
+  self.assertIn(b'\x1b[38;2;61;65;73m 8 ',data);self.assertIn(b'\x1b[38;2;255;215;0mdef',data);self.assertIn(b'\x1b[38;2;170;217;76m"hello"',data)
+  n=self.lib.ui_format_numbered_preview(raw,len(raw),out,len(out),80,16,b'python');self.assertNotIn(b'38;2;',out.raw[:n])
+ def test_source_numeric_bases_exponents_and_json_key_color(self):
+  out=self.render('```python\nx = 0xCAFE + 0b101 + 0o77 + 1.5e-3 + 2j\n```')
+  for token in [b'0xCAFE',b'0b101',b'0o77',b'1.5e-3',b'2j']:self.assertIn(b'\x1b[38;2;191;189;182m'+token,out)
+  # Qwen Dark has no hljs-number or hljs-attr style; those inherit code text.
+  out=self.render('```json\n{"key": "value", "n": 42}\n```')
+  self.assertIn(b'\x1b[38;2;191;189;182m"key"',out);self.assertIn(b'\x1b[38;2;170;217;76m"value"',out)
+ def test_source_language_keyword_profiles_and_comment_boundaries(self):
+  python=self.render('```python\nstring = len([1]) # comment\n```');self.assertNotIn(b'\x1b[38;2;255;215;0mstring',python);self.assertIn(b'\x1b[38;2;100;106;113m# comment',python)
+  c=self.render('```c\nint x = 1; /* comment */ int y = 2;\n```');self.assertIn(b'\x1b[38;2;100;106;113m/* comment */',c);self.assertEqual(SGR.sub(b'',c),b' 1 int x = 1; /* comment */ int y = 2;\n')
+  sql=self.render('```sql\nSELECT x FROM users -- note\n```');self.assertIn(b'\x1b[38;2;255;215;0mSELECT',sql);self.assertIn(b'\x1b[38;2;100;106;113m-- note',sql)
+  go=self.render('```go\nfunc main() { println("hi") }\n```');self.assertIn(b'\x1b[38;2;255;215;0mmain',go)
  def test_no_external_runtime_imports(self):
   self.assertEqual(subprocess.check_output(['nm','-u',str(self.shared)],text=True).strip(),'')
 

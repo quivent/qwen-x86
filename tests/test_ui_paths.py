@@ -89,11 +89,11 @@ class PathCompletionPTYTests(unittest.TestCase):
      until(lambda:b'Type your message' in output,'missing composer')
      os.write(master,b'Inspect @src/ma\t');settle();os.write(master,b'\r')
      until(lambda:len(server.records)==1,'plain path completion did not submit');settle()
-     self.assertEqual(server.records[0][1]['messages'][-1]['content'],'Inspect @src/main.s ')
+     self.assertEqual(server.records[0][1]['messages'][-1]['content'][0]['text'],'Inspect @src/main.s ');self.assertIn('not read by completion',server.records[0][1]['messages'][-1]['content'][1]['text'])
      os.write(master,b'Inspect @mus\t');settle()
      os.write(master,'λ'.encode()+b'\t');settle();os.write(master,b'\r')
      until(lambda:len(server.records)==2,'quoted directory/file completion did not submit');settle()
-     self.assertEqual(server.records[1][1]['messages'][-1]['content'],'Inspect @"music lab/λ song.txt" ')
+     self.assertEqual(server.records[1][1]['messages'][-1]['content'][0]['text'],'Inspect @"music lab/λ song.txt" ');self.assertIn('not read by completion',server.records[1][1]['messages'][-1]['content'][1]['text'])
      os.write(master,b'/quit\r');proc.wait(timeout=3);self.assertEqual(proc.returncode,0);self.assertEqual(termios.tcgetattr(slave),original)
     finally:
      if proc.poll() is None:proc.kill();proc.wait(timeout=2)

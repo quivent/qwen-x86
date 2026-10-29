@@ -145,6 +145,8 @@ class ShellModePTYTests(unittest.TestCase):
   def restart(no_save=False):
    args=[str(ROOT/'qwen-x86'),'--cwd',str(self.cwd),'--base-url',self.server.url]
    if no_save:args.append('--no-save')
+   # A reused PTY master can still contain the exited process's ready screen.
+   while __import__('select').select([self.master],[],[],.02)[0]:__import__('os').read(self.master,262144)
    self.output.clear();self.proc=subprocess.Popen(args,stdin=self.slave,stdout=self.slave,stderr=self.slave,env=self.env,preexec_fn=disable_core)
    self.until(lambda:b'Type your message' in self.output,'restart composer missing')
   restart();command=b'printf x >> persistent-marker'

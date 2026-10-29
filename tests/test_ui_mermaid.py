@@ -58,11 +58,23 @@ class MermaidTests(unittest.TestCase):
    self.render(raw,width=rng.randrange(24,90))
   self.assertLess(time.monotonic()-start,5)
  def test_explicit_unsupported_source_remains_copyable(self):
-  _,plain=self.render('pie\n title Revenue\n "A": 42',index=7)
+  _,plain=self.render('unsupportedDiagram\n A magic B',index=7)
   self.assertIn('/copy mermaid 7',plain);self.assertIn('Visual preview is not available',plain)
-  self.assertIn('"A": 42',plain)
+  self.assertIn('A magic B',plain)
+ def test_all_new_families_no_runtime_and_source_budget(self):
+  fixtures=json.loads((ROOT/'tests/fixtures/ui_mermaid_extended.json').read_text())
+  with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+   result=list(pool.map(lambda f:self.render(f['source'],80,2,4)[1],fixtures*4))
+  for text in result:self.assertNotIn('Visual preview is not available',text);self.assertIn('/copy mermaid 4',text)
+  _,plain=self.render('journey\n'+'Step: 5: User\n'*100,width=80)
+  self.assertEqual(plain.count('• Step:'),80);self.assertIn('Preview limited to 80 source lines.',plain)
+  for source,warning in [('pie','Pie preview found no previewable slices'),('stateDiagram-v2','State preview found no previewable states'),('erDiagram','ER preview found no previewable entities')]:
+   _,plain=self.render(source);self.assertIn(warning,plain)
+  _,plain=self.render('pie\n"A": 1\ntitle Late title\n"B": 2',80)
+  self.assertLess(plain.index('title Late title'),plain.index('A: 1'))
+  _,plain=self.render('mindmap\n  '+'世界'*1000,width=100);plain.encode().decode('utf8')
  def test_original_supported_and_fallback_goldens(self):
-  for golden in GOLDENS:
+  for golden in GOLDENS + json.loads((ROOT/'tests/fixtures/ui_mermaid_extended.json').read_text()):
    with self.subTest(source=golden['source']):
     ansi,plain=self.render(golden['source'],golden['width'])
     lines=[line[1:] if line.startswith(' ') else line for line in plain.splitlines()]

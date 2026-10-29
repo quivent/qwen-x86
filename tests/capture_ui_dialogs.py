@@ -8,7 +8,7 @@ def run(clients=('reference','native')):
  report={'reference_version':'0.24.5','scope':'Command-dialog comparison, isolated profiles; no fabricated sessions/plugins','frames':[]}
  with ModelServer(lambda req:([text_reply('DIALOG_FIXTURE_DONE')],0)) as server:
   for client in clients:
-   for command in ['/model','/theme','/resume','/extensions','/agents manage','/help']:
+   for command in ['/model','/theme','/resume','/extensions','/agents manage','/help','/auth','/settings']:
     home=base/(client+'-'+command[1:].replace(' ','-'));home.mkdir();session=Session(client,work,home,server.url)
     try:
      session.wait('Ask permissions',30);time.sleep(.3);session.literal(command);session.key('Enter');time.sleep(.8)

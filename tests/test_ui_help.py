@@ -57,7 +57,7 @@ class HelpTests(unittest.TestCase):
   tabs=self.catalog();commands=tabs[1][2];custom=tabs[2][2];source=(ROOT/'src/main.s').read_text()
   for command in ['/help','/new','/clear','/reset','/retry','/model','/theme','/approval-mode','/resume','/sessions','/session','/plugins','/agents','/about','/quit']:
    self.assertIn(command,commands);self.assertIn(f'.asciz "{command}"',source)
-  for unavailable in ['/compress','/memory','/auth','/reload-plugins','/telemetry','/stats']:
+  for unavailable in ['/compress','/memory','/telemetry','/stats']:
    self.assertNotIn(unavailable,commands)
   self.assertIn('/plugin:command arguments',custom);self.assertIn('/skill plugin:skill arguments',custom)
   self.assertIn('~/.config/qwen-go/plugins',custom);self.assertIn('.qwen-go/plugins',custom)

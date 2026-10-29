@@ -53,6 +53,12 @@
 .equ C_FENCE_CLOSED,440
 .equ C_INFOPTR,448
 .equ C_INFOLEN,456
+.equ C_THEME_BASE,464
+.equ C_LANG_FLAGS,472
+.equ C_LANG_ROW,480
+.equ C_SYNTAX_ROW,488
+.equ C_SYNTAX_BASE,496
+.equ C_CODE_EXPECT,504
 .equ C_INPUT,512
 .equ MD_CLEAN_MAX,MD_MAX*4
 .equ C_CELLS,C_INPUT+MD_CLEAN_MAX
@@ -60,7 +66,16 @@
 .equ MD_TABLE_STRIDE,MD_TABLE_COLUMNS*16
 .equ C_WIDTHS,C_CELLS+MD_TABLE_STRIDE*2
 .equ C_ALIGNS,C_WIDTHS+MD_TABLE_COLUMNS*8
-.equ MD_FRAME,C_ALIGNS+MD_TABLE_COLUMNS*8+8
+.equ C_MINWIDTHS,C_ALIGNS+MD_TABLE_COLUMNS*8
+.equ C_RENDER_PTR,C_MINWIDTHS+MD_TABLE_COLUMNS*8
+.equ C_WRAP_COUNTS,C_RENDER_PTR+MD_TABLE_COLUMNS*8
+.equ C_WRAPS,C_WRAP_COUNTS+MD_TABLE_COLUMNS*8
+.equ C_SCRATCH,C_WRAPS+MD_TABLE_COLUMNS*96
+.equ C_SCRATCH_USED,C_SCRATCH+1048576
+.equ C_ROW_LINES,C_SCRATCH_USED+8
+.equ C_WRAP_META,C_ROW_LINES+8
+.equ C_ROW_PHYSICAL,C_WRAP_META+64
+.equ MD_FRAME,C_ROW_PHYSICAL+8
 .macro ENTER
  push rbx
  push rbp
@@ -386,7 +401,7 @@ ui_sanitize:
  add rax,rdi
  mov rsi,[rax+8]
  mov rdi,[rax]
- lea rdx,[rip+.m_palettes]
+ mov rdx,[rbx+C_THEME_BASE]
  add rdi,rdx
  jmp .M_put
 .M_lf:
@@ -514,6 +529,12 @@ ui_format_markdown_source:
  mov r10,[rsp+8]
  xor r11d,r11d
  jmp .M_format_entry
+.globl ui_format_numbered_preview
+# Numbered truthful tool preview; seventh argument is an optional language Z.
+ui_format_numbered_preview:
+ mov r10,[rsp+8]
+ mov r11,-1
+ jmp .M_format_entry
 .globl ui_format_markdown_full
 ui_format_markdown_full:
  mov r10,[rsp+8]
@@ -524,13 +545,14 @@ ui_format_markdown_full:
  mov rbx,rsp
  mov [rbx+C_OUT],rdx
  mov [rbx+C_CAP],rcx
+ mov [rbx+C_THEME_ID],r9
  cmp r9,OFFSET FLAT:UI_THEME_PALETTE_COUNT
  jb .M_theme_valid
  xor r9d,r9d
 .M_theme_valid:
- mov [rbx+C_THEME_ID],r9
  imul r9,r9,208
  lea rax,[rip+.m_palettes]
+ mov [rbx+C_THEME_BASE],rax
  add rax,r9
  mov [rbx+C_THEME],rax
  mov qword ptr [rbx+C_MEASURE],0
@@ -567,6 +589,28 @@ ui_format_markdown_full:
  mov [rbx+C_MATH_BUDGET],rcx
  lea rdx,[rbx+C_INPUT]
  mov [rbx+C_SRC],rdx
+ cmp qword ptr [rbx+C_THEME_ID],OFFSET FLAT:UI_THEME_PALETTE_COUNT
+ jb .M_custom_theme_ready
+ mov rax,[rip+.m_custom_theme_reader]
+ test rax,rax
+ jz .M_custom_theme_missing
+ mov rdi,[rbx+C_THEME_ID]
+ mov esi,1
+ call rax
+ test rax,rax
+ jz .M_custom_theme_missing
+ mov [rbx+C_THEME],rax
+ mov qword ptr [rbx+C_THEME_BASE],0
+ jmp .M_custom_theme_ready
+.M_custom_theme_missing:
+ mov qword ptr [rbx+C_THEME_ID],0
+.M_custom_theme_ready:
+ call .M_syntax_init
+ cmp qword ptr [rbx+C_MERMAID_INDEX],-1
+ je .M_numbered_start
+ xor edi,edi
+ xor esi,esi
+ call .M_select_language
  .M_format_line:
  mov qword ptr [rbx+C_INDENT],0
  mov qword ptr [rbx+C_BASE_STYLE],0
@@ -635,6 +679,9 @@ ui_format_markdown_full:
  mov rax,r13
  sub rax,r14
  mov [rbx+C_INFOLEN],rax
+ mov rdi,[rbx+C_INFOPTR]
+ mov rsi,rax
+ call .M_select_language
  call .M_code_count
  call .M_mermaid_fence
  jmp .M_format_next
@@ -1457,11 +1504,85 @@ ui_format_markdown_full:
  add rsp,40
  ret
 
+# Reuse the same palette and language lexer for truthful numbered tool lines.
+# Numbers originate in ui_tool_preview; this function never renumbers content.
+.M_numbered_start:
+ mov rdi,[rbx+C_MATH_INDEX]
+ xor esi,esi
+ test rdi,rdi
+ jz .M_numbered_language
+ call qx_strlen
+ mov rsi,rax
+ mov rdi,[rbx+C_MATH_INDEX]
+.M_numbered_language:
+ call .M_select_language
+.M_numbered_loop:
+ mov rax,[rbx+C_OFFSET]
+ cmp rax,[rbx+C_SIZE]
+ jae .M_format_done
+ mov qword ptr [rbx+C_INDENT],0
+ mov qword ptr [rbx+C_BASE_STYLE],0
+ call .M_line
+ call .M_numbered_line
+ PUT .m_reset
+ cmp qword ptr [rbx+C_NEWLINE],0
+ je .M_numbered_loop
+ call .M_lf
+ jmp .M_numbered_loop
+.M_numbered_line:
+ push rbp
+ mov r12,[rbx+C_LINE]
+ mov r13,[rbx+C_LLEN]
+ xor r14d,r14d
+.M_numbered_spaces:
+ cmp r14,r13
+ jae .M_numbered_plain
+ cmp byte ptr [r12+r14],32
+ jne .M_numbered_digits_begin
+ inc r14
+ jmp .M_numbered_spaces
+.M_numbered_digits_begin:
+ mov rbp,r14
+.M_numbered_digits:
+ cmp r14,r13
+ jae .M_numbered_plain
+ mov al,[r12+r14]
+ cmp al,48
+ jb .M_numbered_digit_end
+ cmp al,57
+ ja .M_numbered_digit_end
+ inc r14
+ jmp .M_numbered_digits
+.M_numbered_digit_end:
+ cmp r14,rbp
+ je .M_numbered_plain
+ cmp byte ptr [r12+r14],32
+ jne .M_numbered_plain
+ inc r14
+ PUT .m_gutter
+ mov rdi,r12
+ mov rsi,r14
+ call .M_text
+ add r12,r14
+ sub r13,r14
+ mov rax,[rbx+C_COL]
+ mov [rbx+C_INDENT],rax
+ mov qword ptr [rbx+C_CODE_EXPECT],0
+ jmp .M_code_body
+.M_numbered_plain:
+ PUT .m_code_foreground
+ mov rdi,r12
+ mov rsi,r13
+ call .M_text
+ pop rbp
+ ret
+
 # Code highlighting is deliberately a bounded common-language lexer, not a
 # second language parser. Keywords, strings, comments and numbers have theme
 # colors. Language labels are visible; unsupported languages remain readable.
 .M_code:
  push rbp
+ mov qword ptr [rbx+C_CODE_EXPECT],0
  PUT .m_gutter
  TEXT .m_space
  mov rax,[rbx+C_CODELINE]
@@ -1490,6 +1611,8 @@ ui_format_markdown_full:
  TEXT .m_space
  mov rax,[rbx+C_COL]
  mov [rbx+C_INDENT],rax
+.M_code_body:
+ mov qword ptr [rbx+C_CODE_EXPECT],0
  PUT .m_code_foreground
  xor r14d,r14d
 .M_code_loop:
@@ -1502,14 +1625,41 @@ ui_format_markdown_full:
  cmp al,39
  je .M_code_string
  cmp al,'#'
+ jne .M_code_not_hash
+ test qword ptr [rbx+C_LANG_FLAGS],1
+ jnz .M_code_comment
+.M_code_not_hash:
+ cmp al,';'
+ jne .M_code_not_semicolon
+ test qword ptr [rbx+C_LANG_FLAGS],8
+ jnz .M_code_comment
+.M_code_not_semicolon:
+ cmp al,96
+ jne .M_code_not_backtick
+ test qword ptr [rbx+C_LANG_FLAGS],16
+ jnz .M_code_string
+.M_code_not_backtick:
+ cmp al,45
+ jne .M_code_not_dash_comment
+ test qword ptr [rbx+C_LANG_FLAGS],4
+ jz .M_code_not_dash_comment
+ lea rax,[r14+1]
+ cmp rax,r13
+ jae .M_code_not_dash_comment
+ cmp byte ptr [r12+r14+1],45
  je .M_code_comment
+.M_code_not_dash_comment:
  cmp al,'/'
  jne .M_code_number_probe
  lea rax,[r14+1]
  cmp rax,r13
  jae .M_code_plain
+ test qword ptr [rbx+C_LANG_FLAGS],2
+ jz .M_code_number_probe
  cmp byte ptr [r12+r14+1],'/'
  je .M_code_comment
+ cmp byte ptr [r12+r14+1],'*'
+ je .M_code_block_comment
 .M_code_number_probe:
  mov al,[r12+r14]
  cmp al,'0'
@@ -1519,19 +1669,126 @@ ui_format_markdown_full:
  PUT .m_number_color
  mov qword ptr [rbx+216],1
  mov rbp,r14
+ mov qword ptr [rbx+C_WORD],0
+ cmp byte ptr [r12+rbp],48
+ jne .M_code_number_more
+ lea rax,[rbp+2]
+ cmp rax,r13
+ jae .M_code_number_more
+ mov al,[r12+rbp+1]
+ or al,32
+ cmp al,'x'
+ je .M_code_number_hex
+ cmp al,'b'
+ je .M_code_number_binary
+ cmp al,'o'
+ je .M_code_number_octal
+ jmp .M_code_number_more
+.M_code_number_hex:
+ mov qword ptr [rbx+C_WORD],16
+ jmp .M_code_number_base_start
+.M_code_number_binary:
+ mov qword ptr [rbx+C_WORD],2
+ jmp .M_code_number_base_start
+.M_code_number_octal:
+ mov qword ptr [rbx+C_WORD],8
+.M_code_number_base_start:
+ add rbp,2
+ mov [rbx+C_START],rbp
+.M_code_number_base_loop:
+ cmp rbp,r13
+ jae .M_code_number_base_end
+ mov al,[r12+rbp]
+ cmp al,'_'
+ je .M_code_number_base_next
+ cmp al,'0'
+ jb .M_code_number_base_end
+ cmp al,'9'
+ ja .M_code_number_hex_letter
+ sub al,'0'
+ movzx eax,al
+ cmp rax,[rbx+C_WORD]
+ jae .M_code_number_base_end
+ jmp .M_code_number_base_next
+.M_code_number_hex_letter:
+ cmp qword ptr [rbx+C_WORD],16
+ jne .M_code_number_base_end
+ or al,32
+ cmp al,'a'
+ jb .M_code_number_base_end
+ cmp al,'f'
+ ja .M_code_number_base_end
+.M_code_number_base_next:
+ inc rbp
+ jmp .M_code_number_base_loop
+.M_code_number_base_end:
+ cmp rbp,[rbx+C_START]
+ jne .M_code_number_suffix
+ lea rbp,[r14+1]
+ jmp .M_code_span
 .M_code_number_more:
  inc rbp
+.M_code_decimal_loop:
  cmp rbp,r13
  jae .M_code_span
  mov al,[r12+rbp]
- cmp al,'.'
- je .M_code_number_more
  cmp al,'_'
  je .M_code_number_more
  cmp al,'0'
- jb .M_code_span
+ jb .M_code_decimal_other
  cmp al,'9'
  jbe .M_code_number_more
+.M_code_decimal_other:
+ cmp al,'.'
+ jne .M_code_decimal_exponent
+ test qword ptr [rbx+C_WORD],3
+ jnz .M_code_number_suffix
+ or qword ptr [rbx+C_WORD],1
+ jmp .M_code_number_more
+.M_code_decimal_exponent:
+ or al,32
+ cmp al,'e'
+ jne .M_code_number_suffix
+ test qword ptr [rbx+C_WORD],2
+ jnz .M_code_number_suffix
+ lea rax,[rbp+1]
+ cmp rax,r13
+ jae .M_code_number_suffix
+ mov dl,[r12+rax]
+ cmp dl,'+'
+ je .M_code_exponent_sign
+ cmp dl,'-'
+ jne .M_code_exponent_digit
+.M_code_exponent_sign:
+ inc rax
+ cmp rax,r13
+ jae .M_code_number_suffix
+ mov dl,[r12+rax]
+.M_code_exponent_digit:
+ cmp dl,'0'
+ jb .M_code_number_suffix
+ cmp dl,'9'
+ ja .M_code_number_suffix
+ or qword ptr [rbx+C_WORD],2
+ mov rbp,rax
+ jmp .M_code_number_more
+.M_code_number_suffix:
+ cmp rbp,r13
+ jae .M_code_span
+ mov al,[r12+rbp]
+ cmp al,'n'
+ jne .M_code_number_imaginary
+ test qword ptr [rbx+C_LANG_FLAGS],128
+ jz .M_code_span
+ inc rbp
+ jmp .M_code_span
+.M_code_number_imaginary:
+ lea rax,[rip+.m_language_python]
+ cmp rax,[rbx+C_LANG_ROW]
+ jne .M_code_span
+ cmp byte ptr [r12+rbp],'j'
+ jne .M_code_span
+ inc rbp
  jmp .M_code_span
 .M_code_word_probe:
  cmp al,'_'
@@ -1564,21 +1821,23 @@ ui_format_markdown_full:
  lea rdi,[r12+r14]
  mov rsi,rbp
  sub rsi,r14
- call .M_literal_keyword
- test eax,eax
- jz .M_code_regular_keyword
- PUT .m_literal_color
- mov qword ptr [rbx+216],1
- jmp .M_code_span
-.M_code_regular_keyword:
- lea rdi,[r12+r14]
- mov rsi,rbp
- sub rsi,r14
- call .M_keyword
+ call .M_code_word_role
  test eax,eax
  jz .M_code_span
- PUT .m_keyword_color
  mov qword ptr [rbx+216],1
+ cmp eax,1
+ jne .M_code_word_not_keyword
+ PUT .m_keyword_color
+ jmp .M_code_span
+.M_code_word_not_keyword:
+ cmp eax,2
+ jne .M_code_word_syntax
+ PUT .m_literal_color
+ jmp .M_code_span
+.M_code_word_syntax:
+ sub eax,3
+ mov edi,eax
+ call .M_syntax_color
  jmp .M_code_span
 .M_code_string:
  mov dl,al
@@ -1599,7 +1858,38 @@ ui_format_markdown_full:
  jne .M_code_string_more
 .M_code_string_end:
  mov qword ptr [rbx+216],1
+ test qword ptr [rbx+C_LANG_FLAGS],32
+ jz .M_code_string_color
+ mov rax,rbp
+.M_json_after_string:
+ cmp rax,r13
+ jae .M_code_string_color
+ cmp byte ptr [r12+rax],32
+ jne .M_json_key_probe
+ inc rax
+ jmp .M_json_after_string
+.M_json_key_probe:
+ cmp byte ptr [r12+rax],58
+ jne .M_code_string_color
+ PUT .m_code_foreground
+ jmp .M_code_span
+.M_code_string_color:
  PUT .m_string_color
+ jmp .M_code_span
+.M_code_block_comment:
+ lea rbp,[r14+2]
+.M_code_block_scan:
+ lea rax,[rbp+1]
+ cmp rax,r13
+ jae .M_code_comment
+ cmp word ptr [r12+rbp],0x2f2a
+ je .M_code_block_end
+ inc rbp
+ jmp .M_code_block_scan
+.M_code_block_end:
+ add rbp,2
+ mov qword ptr [rbx+216],1
+ PUT .m_comment_color
  jmp .M_code_span
 .M_code_comment:
  mov qword ptr [rbx+216],1
@@ -1607,6 +1897,10 @@ ui_format_markdown_full:
  mov rbp,r13
  jmp .M_code_span
 .M_code_plain:
+ cmp byte ptr [r12+r14],32
+ je .M_code_plain_grapheme
+ mov qword ptr [rbx+C_CODE_EXPECT],0
+.M_code_plain_grapheme:
  mov rdi,r12
  mov rsi,r13
  mov rdx,r14
@@ -1627,6 +1921,163 @@ ui_format_markdown_full:
 .M_code_done:
  pop rbp
  ret
+
+.M_syntax_init:
+ push r12
+ mov r12,[rbx+C_THEME_ID]
+ cmp r12,17
+ jb .M_syntax_builtin
+ mov rax,[rip+.m_custom_theme_reader]
+ test rax,rax
+ jz .M_syntax_default
+ mov rdi,r12
+ mov esi,3
+ call rax
+ test rax,rax
+ jz .M_syntax_default
+ mov [rbx+C_SYNTAX_ROW],rax
+ mov qword ptr [rbx+C_SYNTAX_BASE],0
+ jmp .M_syntax_init_done
+.M_syntax_default:
+ xor r12d,r12d
+.M_syntax_builtin:
+ lea rax,[rip+.m_syntax_palettes]
+ mov [rbx+C_SYNTAX_BASE],rax
+ imul r12,r12,192
+ add rax,r12
+ mov [rbx+C_SYNTAX_ROW],rax
+.M_syntax_init_done:
+ pop r12
+ ret
+.M_syntax_color:
+ mov rax,[rbx+C_SYNTAX_ROW]
+ shl rdi,4
+ add rax,rdi
+ mov rsi,[rax+8]
+ mov rdi,[rax]
+ add rdi,[rbx+C_SYNTAX_BASE]
+ jmp .M_put
+# Explicit language aliases select source-derived keyword/literal/builtin/type
+# dictionaries. The default retains lowlight's auto-detection-like common set.
+.M_select_language:
+ push r12
+ push r13
+ push r14
+ mov r12,rdi
+ mov r13,rsi
+ lea r14,[rip+.m_language_aliases]
+ lea rax,[rip+.m_languages]
+ mov [rbx+C_LANG_ROW],rax
+ mov qword ptr [rbx+C_LANG_FLAGS],19
+ mov qword ptr [rbx+C_CODE_EXPECT],0
+ test r13,r13
+ jz .M_select_done
+.M_select_trim:
+ cmp byte ptr [r12],32
+ jne .M_select_alias
+ inc r12
+ dec r13
+ jnz .M_select_trim
+ jmp .M_select_done
+.M_select_alias:
+ cmp qword ptr [r14],0
+ je .M_select_done
+ mov rdx,[r14]
+ lea rax,[rip+.m_languages]
+ add rdx,rax
+ xor ecx,ecx
+.M_select_byte:
+ cmp byte ptr [rdx+rcx],0
+ je .M_select_end
+ cmp rcx,r13
+ jae .M_select_next
+ mov al,[r12+rcx]
+ or al,32
+ cmp al,[rdx+rcx]
+ jne .M_select_next
+ inc rcx
+ jmp .M_select_byte
+.M_select_end:
+ cmp rcx,r13
+ je .M_select_found
+ cmp byte ptr [r12+rcx],32
+ jne .M_select_next
+.M_select_found:
+ lea rax,[rip+.m_languages]
+ add rax,[r14+8]
+ mov [rbx+C_LANG_ROW],rax
+ mov rax,[rax+40]
+ mov [rbx+C_LANG_FLAGS],rax
+ jmp .M_select_done
+.M_select_next:
+ add r14,16
+ jmp .M_select_alias
+.M_select_done:
+ pop r14
+ pop r13
+ pop r12
+ ret
+# Return1keyword,2literal,3+new syntax role index,0plain.
+.M_code_word_role:
+ push r12
+ push r13
+ push r14
+ mov r12,rdi
+ mov r13,rsi
+ cmp qword ptr [rbx+C_CODE_EXPECT],0
+ je .M_code_lookup
+ mov qword ptr [rbx+C_CODE_EXPECT],0
+ mov eax,3
+ jmp .M_code_role_done
+.M_code_lookup:
+ xor r14d,r14d
+.M_code_lookup_category:
+ cmp r14,5
+ jae .M_code_role_none
+ mov rax,[rbx+C_LANG_ROW]
+ mov r8,[rax+r14*8]
+ lea rax,[rip+.m_languages]
+ add r8,rax
+ mov rdi,r12
+ mov rsi,r13
+ call .M_keyword_next
+ test eax,eax
+ jnz .M_code_role_found
+ inc r14
+ jmp .M_code_lookup_category
+.M_code_role_found:
+ test r14,r14
+ jnz .M_code_role_nonkeyword
+ # The next identifier after declaration keywords is a title, not a keyword.
+ mov rdi,r12
+ mov rsi,r13
+ lea r8,[rip+.m_declaration_keywords]
+ call .M_keyword_next
+ test eax,eax
+ jz .M_code_keyword_result
+ mov qword ptr [rbx+C_CODE_EXPECT],1
+.M_code_keyword_result:
+ mov eax,1
+ jmp .M_code_role_done
+.M_code_role_nonkeyword:
+ mov eax,2
+ cmp r14,1
+ je .M_code_role_done
+ mov eax,4
+ cmp r14,2
+ je .M_code_role_done
+ mov eax,5
+ cmp r14,3
+ je .M_code_role_done
+ mov eax,13
+ jmp .M_code_role_done
+.M_code_role_none:
+ xor eax,eax
+.M_code_role_done:
+ pop r14
+ pop r13
+ pop r12
+ ret
 # keyword(ptr,len)->1/0, exact case-sensitive comparisons over a fixed table.
 .M_literal_keyword:
  lea r8,[rip+.m_literals]
@@ -1643,7 +2094,13 @@ ui_format_markdown_full:
  mov al,[r8+rcx]
  test al,al
  jz .M_keyword_skip
- cmp al,[rdi+rcx]
+ mov dl,[rdi+rcx]
+ test qword ptr [rbx+C_LANG_FLAGS],64
+ jz .M_keyword_case_ready
+ or al,32
+ or dl,32
+.M_keyword_case_ready:
+ cmp al,dl
  jne .M_keyword_skip
  inc rcx
  jmp .M_keyword_byte
@@ -1888,6 +2345,20 @@ ui_format_markdown_full:
  jbe .M_measure_row_next
  mov [rbx+r14*8+C_WIDTHS],rax
 .M_measure_row_next:
+ mov rdi,[r12]
+ mov rsi,[r12+8]
+ lea rdx,[rbx+C_SCRATCH]
+ mov ecx,1048576
+ call .M_capture_inline
+ test rax,rax
+ js .M_measure_row_skip_words
+ mov rsi,rax
+ lea rdi,[rbx+C_SCRATCH]
+ call .M_word_maximum
+ cmp rax,[rbx+r14*8+C_MINWIDTHS]
+ jbe .M_measure_row_skip_words
+ mov [rbx+r14*8+C_MINWIDTHS],rax
+.M_measure_row_skip_words:
  add r12,16
  inc r14
  jmp .M_measure_row_loop
@@ -2000,6 +2471,10 @@ ui_format_markdown_full:
  xor eax,eax
  mov ecx,MD_TABLE_COLUMNS
  rep stosq
+ lea rdi,[rbx+C_MINWIDTHS]
+ mov eax,3
+ mov ecx,MD_TABLE_COLUMNS
+ rep stosq
  xor edi,edi
  call .M_measure_row
  mov rax,[rbx+C_BODY_START]
@@ -2049,8 +2524,27 @@ ui_format_markdown_full:
  inc rcx
  jmp .M_table_total_width
 .M_table_width_done:
- cmp rax,[rbx+C_COLS]
- jbe .M_table_horizontal
+ call .M_table_distribute
+ # Check every real row before committing horizontal chrome. The source uses
+ # vertical fields when any cell requires more than four wrapped lines.
+ xor edi,edi
+ call .M_table_prepare_row
+ cmp rax,4
+ ja .M_table_vertical
+ mov r15,[rbx+C_BODY_START]
+.M_table_check_row:
+ cmp r15,[rbx+C_TABLE_END]
+ jae .M_table_horizontal
+ mov rax,r15
+ call .M_peek
+ mov r15,rdx
+ mov edx,1
+ call .M_parse_cells
+ mov edi,1
+ call .M_table_prepare_row
+ cmp rax,4
+ ja .M_table_vertical
+ jmp .M_table_check_row
 .M_table_vertical:
  mov qword ptr [rbx+C_TVERT],1
  jmp .M_table_body_render
@@ -2232,13 +2726,12 @@ ui_format_markdown_full:
  push r14
  mov qword ptr [rbx+C_TABLE_HEADER],0
  test rdi,rdi
- jnz .M_table_render_body_index
+ jnz .M_table_prepare_visible
  mov qword ptr [rbx+C_TABLE_HEADER],1
-.M_table_render_body_index:
- mov r12,rdi
- imul r12,r12,MD_TABLE_STRIDE
- lea rax,[rbx+C_CELLS]
- add r12,rax
+.M_table_prepare_visible:
+ call .M_table_prepare_row
+ mov qword ptr [rbx+C_ROW_PHYSICAL],0
+.M_table_physical_line:
  PUT .m_dim
  TEXT .m_table_left
  xor r13d,r13d
@@ -2252,15 +2745,39 @@ ui_format_markdown_full:
  PUT .m_link
  PUT .m_link_off
 .M_table_render_cell_data:
+ mov rax,[rbx+C_ROW_LINES]
+ sub rax,[rbx+r13*8+C_WRAP_COUNTS]
+ shr rax,1
+ mov r14,[rbx+C_ROW_PHYSICAL]
+ sub r14,rax
+ js .M_table_empty_segment
+ cmp r14,[rbx+r13*8+C_WRAP_COUNTS]
+ jae .M_table_empty_segment
+ imul rax,r13,96
+ lea r12,[rbx+rax+C_WRAPS]
+ imul rax,r14,24
+ add r12,rax
+ mov rdi,[rbx+r13*8+C_RENDER_PTR]
+ mov rsi,[r12]
+ call .M_table_replay_style
  mov rdi,[r12]
  mov rsi,[r12+8]
  mov rdx,[rbx+r13*8+C_WIDTHS]
+ mov rcx,[r12+16]
  mov r8,[rbx+r13*8+C_ALIGNS]
- call .M_table_cell
+ call .M_table_ansi_cell
+ jmp .M_table_segment_done
+.M_table_empty_segment:
+ lea rdi,[rip+.m_space]
+ xor esi,esi
+ mov rdx,[rbx+r13*8+C_WIDTHS]
+ xor ecx,ecx
+ xor r8d,r8d
+ call .M_table_ansi_cell
+.M_table_segment_done:
  PUT .m_reset
  PUT .m_dim
  inc r13
- add r12,16
  cmp r13,[rbx+C_NCOLS]
  jae .M_table_row_end
  TEXT .m_table_middle
@@ -2270,6 +2787,10 @@ ui_format_markdown_full:
  TEXT .m_table_right
  PUT .m_reset
  call .M_lf
+ inc qword ptr [rbx+C_ROW_PHYSICAL]
+ mov rax,[rbx+C_ROW_PHYSICAL]
+ cmp rax,[rbx+C_ROW_LINES]
+ jb .M_table_physical_line
  pop r14
  pop r13
  pop r12
@@ -2318,6 +2839,454 @@ ui_format_markdown_full:
  jmp .M_cell_right_pad
 .M_cell_render_done:
  add rsp,16
+ pop rbp
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ ret
+
+# Render inline markup into a bounded private ANSI scratch builder. Preserve the
+# outer builder exactly, including its sticky error and wrapping coordinates.
+.M_capture_inline:
+ push r12
+ push r13
+ push r14
+ push r15
+ push rbp
+ sub rsp,80
+ mov r12,rdi
+ mov r13,rsi
+ mov r14,rdx
+ mov r15,rcx
+ lea rdi,[rsp]
+ lea rsi,[rbx]
+ mov ecx,4
+ rep movsq
+ mov rax,[rbx+C_COL]
+ mov [rsp+32],rax
+ mov rax,[rbx+C_COLS]
+ mov [rsp+40],rax
+ mov rax,[rbx+C_INDENT]
+ mov [rsp+48],rax
+ mov rax,[rbx+C_STYLE]
+ mov [rsp+56],rax
+ mov rax,[rbx+C_BASE_STYLE]
+ mov [rsp+64],rax
+ mov [rbx+C_OUT],r14
+ mov [rbx+C_CAP],r15
+ mov qword ptr [rbx+C_LEN],0
+ mov qword ptr [rbx+C_ERR],0
+ mov qword ptr [rbx+C_COL],0
+ mov qword ptr [rbx+C_COLS],0x7fffffff
+ mov qword ptr [rbx+C_INDENT],0
+ mov qword ptr [rbx+C_BASE_STYLE],0
+ mov rdi,r12
+ mov rsi,r13
+ call .M_render_inline
+ mov rbp,[rbx+C_LEN]
+ cmp qword ptr [rbx+C_ERR],0
+ je .M_capture_good
+ mov rbp,-28
+.M_capture_good:
+ lea rdi,[rbx]
+ lea rsi,[rsp]
+ mov ecx,4
+ rep movsq
+ mov rax,[rsp+32]
+ mov [rbx+C_COL],rax
+ mov rax,[rsp+40]
+ mov [rbx+C_COLS],rax
+ mov rax,[rsp+48]
+ mov [rbx+C_INDENT],rax
+ mov rax,[rsp+56]
+ mov [rbx+C_STYLE],rax
+ mov rax,[rsp+64]
+ mov [rbx+C_BASE_STYLE],rax
+ mov rax,rbp
+ add rsp,80
+ pop rbp
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ ret
+
+# Trusted ANSI next cluster: ptr,len,index -> next offset RAX, cell width RDX.
+.M_ansi_next:
+ cmp byte ptr [rdi+rdx],27
+ jne .M_ansi_grapheme
+ mov rax,rdx
+.M_ansi_sgr:
+ inc rax
+ cmp rax,rsi
+ jae .M_ansi_skip
+ cmp byte ptr [rdi+rax-1],'m'
+ jne .M_ansi_sgr
+.M_ansi_skip:
+ xor edx,edx
+ ret
+.M_ansi_grapheme:
+ push r12
+ push r13
+ push r14
+ mov r12,rdi
+ mov r13,rdx
+ call ui_next_grapheme
+ mov r14,rax
+ lea rdi,[r12+r13]
+ mov rsi,rax
+ sub rsi,r13
+ call ui_text_width
+ mov rdx,rax
+ mov rax,r14
+ pop r14
+ pop r13
+ pop r12
+ ret
+
+.M_word_maximum:
+ push r12
+ push r13
+ push r14
+ push r15
+ push rbp
+ mov r12,rdi
+ mov r13,rsi
+ xor r14d,r14d
+ xor r15d,r15d
+ mov ebp,3
+.M_word_max_loop:
+ cmp r14,r13
+ jae .M_word_max_done
+ cmp byte ptr [r12+r14],' '
+ jne .M_word_max_cluster
+ cmp r15,rbp
+ cmova rbp,r15
+ xor r15d,r15d
+ inc r14
+ jmp .M_word_max_loop
+.M_word_max_cluster:
+ mov rdi,r12
+ mov rsi,r13
+ mov rdx,r14
+ call .M_ansi_next
+ mov r14,rax
+ add r15,rdx
+ jmp .M_word_max_loop
+.M_word_max_done:
+ cmp r15,rbp
+ cmova rbp,r15
+ mov rax,rbp
+ pop rbp
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ ret
+
+.M_table_distribute:
+ push r12
+ push r13
+ push r14
+ push r15
+ push rbp
+ mov r12,[rbx+C_COLS]
+ mov rax,[rbx+C_NCOLS]
+ lea rax,[rax+rax*2+5]
+ sub r12,rax
+ xor r13d,r13d
+ xor r14d,r14d
+ xor ecx,ecx
+.M_distribution_sum:
+ cmp rcx,[rbx+C_NCOLS]
+ jae .M_distribution_summed
+ add r13,[rbx+rcx*8+C_MINWIDTHS]
+ add r14,[rbx+rcx*8+C_WIDTHS]
+ inc rcx
+ jmp .M_distribution_sum
+.M_distribution_summed:
+ cmp r14,r12
+ jbe .M_distribution_done
+ xor r15d,r15d
+.M_distribution_column:
+ cmp r15,[rbx+C_NCOLS]
+ jae .M_distribution_check_excess
+ mov rbp,[rbx+r15*8+C_MINWIDTHS]
+ cmp r13,r12
+ ja .M_distribution_hard
+ mov rax,[rbx+r15*8+C_WIDTHS]
+ sub rax,rbp
+ mov rcx,r12
+ sub rcx,r13
+ mul rcx
+ mov rcx,r14
+ sub rcx,r13
+ div rcx
+ add rax,rbp
+ jmp .M_distribution_save
+.M_distribution_hard:
+ mov rax,rbp
+ mul r12
+ div r13
+ cmp rax,3
+ jae .M_distribution_save
+ mov eax,3
+.M_distribution_save:
+ mov [rbx+r15*8+C_WIDTHS],rax
+ inc r15
+ jmp .M_distribution_column
+.M_distribution_check_excess:
+ xor eax,eax
+ xor ecx,ecx
+ xor r8d,r8d
+ xor r9d,r9d
+.M_distribution_excess_sum:
+ cmp rcx,[rbx+C_NCOLS]
+ jae .M_distribution_excess_ready
+ mov rdx,[rbx+rcx*8+C_WIDTHS]
+ add rax,rdx
+ cmp rdx,r8
+ jbe .M_distribution_excess_next
+ mov r8,rdx
+ mov r9,rcx
+.M_distribution_excess_next:
+ inc rcx
+ jmp .M_distribution_excess_sum
+.M_distribution_excess_ready:
+ cmp rax,r12
+ jbe .M_distribution_done
+ cmp r8,3
+ jbe .M_distribution_done
+ dec qword ptr [rbx+r9*8+C_WIDTHS]
+ jmp .M_distribution_check_excess
+.M_distribution_done:
+ pop rbp
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ ret
+
+# Pre-render one row, retain at most four ANSI spans per cell. Return maximum
+# cell line count; five means use the original's vertical field presentation.
+.M_table_prepare_row:
+ push r12
+ push r13
+ push r14
+ mov r12,rdi
+ imul r12,r12,MD_TABLE_STRIDE
+ lea rax,[rbx+C_CELLS]
+ add r12,rax
+ mov qword ptr [rbx+C_SCRATCH_USED],0
+ mov qword ptr [rbx+C_ROW_LINES],1
+ xor r13d,r13d
+.M_prepare_cell:
+ cmp r13,[rbx+C_NCOLS]
+ jae .M_prepare_done
+ lea rdx,[rbx+C_SCRATCH]
+ add rdx,[rbx+C_SCRATCH_USED]
+ mov [rbx+r13*8+C_RENDER_PTR],rdx
+ mov ecx,1048576
+ sub rcx,[rbx+C_SCRATCH_USED]
+ mov rdi,[r12]
+ mov rsi,[r12+8]
+ call .M_capture_inline
+ test rax,rax
+ js .M_prepare_overflow
+ add [rbx+C_SCRATCH_USED],rax
+ mov rsi,rax
+ mov rdi,[rbx+r13*8+C_RENDER_PTR]
+ mov rdx,[rbx+r13*8+C_WIDTHS]
+ imul rcx,r13,96
+ lea rcx,[rbx+rcx+C_WRAPS]
+ call .M_wrap_ansi
+ cmp rax,4
+ ja .M_prepare_overflow
+ mov [rbx+r13*8+C_WRAP_COUNTS],rax
+ cmp rax,[rbx+C_ROW_LINES]
+ jbe .M_prepare_next
+ mov [rbx+C_ROW_LINES],rax
+.M_prepare_next:
+ add r12,16
+ inc r13
+ jmp .M_prepare_cell
+.M_prepare_overflow:
+ mov qword ptr [rbx+C_ROW_LINES],5
+.M_prepare_done:
+ mov rax,[rbx+C_ROW_LINES]
+ pop r14
+ pop r13
+ pop r12
+ ret
+
+.M_wrap_ansi:
+ push r12
+ push r13
+ push r14
+ push r15
+ push rbp
+ sub rsp,64
+ mov r12,rdi
+ mov r13,rsi
+ mov r14,rdx
+ mov r15,rcx
+ xor ebp,ebp
+ mov qword ptr [rsp],0
+ mov qword ptr [rsp+8],0
+ mov qword ptr [rsp+16],0
+ mov qword ptr [rsp+24],-1
+.M_wrap_ansi_loop:
+ mov rdx,[rsp+8]
+ cmp rdx,r13
+ jae .M_wrap_ansi_final
+ cmp byte ptr [r12+rdx],' '
+ jne .M_wrap_ansi_cluster
+ mov [rsp+24],rdx
+ mov rax,[rsp+16]
+ mov [rsp+32],rax
+.M_wrap_ansi_cluster:
+ mov rdi,r12
+ mov rsi,r13
+ call .M_ansi_next
+ mov [rsp+40],rax
+ mov rax,[rsp+16]
+ add rax,rdx
+ cmp rax,r14
+ ja .M_wrap_ansi_break
+ mov [rsp+16],rax
+ mov rax,[rsp+40]
+ mov [rsp+8],rax
+ jmp .M_wrap_ansi_loop
+.M_wrap_ansi_break:
+ mov rcx,[rsp+24]
+ cmp rcx,-1
+ je .M_wrap_ansi_hard
+ cmp rcx,[rsp]
+ jbe .M_wrap_ansi_hard
+ mov [rsp+8],rcx
+ mov rax,[rsp+32]
+ mov [rsp+16],rax
+.M_wrap_ansi_hard:
+ cmp rbp,4
+ jae .M_wrap_ansi_too_many
+ mov rax,[rsp]
+ lea rdx,[r12+rax]
+ mov [r15],rdx
+ mov rcx,[rsp+8]
+ sub rcx,rax
+ mov [r15+8],rcx
+ mov rax,[rsp+16]
+ mov [r15+16],rax
+ add r15,24
+ inc rbp
+ mov rax,[rsp+8]
+.M_wrap_ansi_skip_space:
+ cmp rax,r13
+ jae .M_wrap_ansi_restart
+ cmp byte ptr [r12+rax],' '
+ jne .M_wrap_ansi_restart
+ inc rax
+ jmp .M_wrap_ansi_skip_space
+.M_wrap_ansi_restart:
+ mov [rsp],rax
+ mov [rsp+8],rax
+ mov qword ptr [rsp+16],0
+ mov qword ptr [rsp+24],-1
+ jmp .M_wrap_ansi_loop
+.M_wrap_ansi_final:
+ cmp rbp,4
+ jae .M_wrap_ansi_too_many
+ mov rax,[rsp]
+ lea rdx,[r12+rax]
+ mov [r15],rdx
+ mov rcx,r13
+ sub rcx,rax
+ mov [r15+8],rcx
+ mov rax,[rsp+16]
+ mov [r15+16],rax
+ inc rbp
+ mov rax,rbp
+ jmp .M_wrap_ansi_return
+.M_wrap_ansi_too_many:
+ mov eax,5
+.M_wrap_ansi_return:
+ add rsp,64
+ pop rbp
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ ret
+
+.M_table_replay_style:
+ push r12
+ push r13
+ sub rsp,8
+ mov r12,rdi
+ mov r13,rsi
+.M_replay_next:
+ cmp r12,r13
+ jae .M_replay_done
+ cmp byte ptr [r12],27
+ je .M_replay_sgr
+ inc r12
+ jmp .M_replay_next
+.M_replay_sgr:
+ mov rdi,r12
+.M_replay_sgr_end:
+ inc r12
+ cmp r12,r13
+ jae .M_replay_emit
+ cmp byte ptr [r12-1],'m'
+ jne .M_replay_sgr_end
+.M_replay_emit:
+ mov rsi,r12
+ sub rsi,rdi
+ call .M_put
+ jmp .M_replay_next
+.M_replay_done:
+ add rsp,8
+ pop r13
+ pop r12
+ ret
+
+.M_table_ansi_cell:
+ push r12
+ push r13
+ push r14
+ push r15
+ push rbp
+ mov r12,rdi
+ mov r13,rsi
+ mov rbp,rdx
+ sub rbp,rcx
+ xor r15d,r15d
+ test r8,r8
+ jz .M_ansi_padding_ready
+ mov r15,rbp
+ cmp r8,2
+ jne .M_ansi_padding_ready
+ shr r15,1
+.M_ansi_padding_ready:
+ sub rbp,r15
+.M_ansi_padding_left:
+ test r15,r15
+ jz .M_ansi_cell_content
+ TEXT .m_space
+ dec r15
+ jmp .M_ansi_padding_left
+.M_ansi_cell_content:
+ mov rdi,r12
+ mov rsi,r13
+ call .M_put
+.M_ansi_padding_right:
+ test rbp,rbp
+ jz .M_ansi_cell_done
+ TEXT .m_space
+ dec rbp
+ jmp .M_ansi_padding_right
+.M_ansi_cell_done:
  pop rbp
  pop r15
  pop r14
@@ -3623,3 +4592,1474 @@ ui_extract_mermaid:
 .equ .m_mermaid_limit_len,.-.m_mermaid_limit
 .m_mermaid_pending: .ascii "Mermaid diagram is being written..."
 .equ .m_mermaid_pending_len,.-.m_mermaid_pending
+.section .bss
+.m_custom_theme_reader: .skip 8
+.text
+.globl ui_markdown_set_theme_reader
+ui_markdown_set_theme_reader:
+ mov [rip+.m_custom_theme_reader],rdi
+ ret
+.section .note.GNU-stack,"",@progbits
+
+.section .rodata
+.m_languages:
+ .quad .m_keywords-.m_languages,.m_literals-.m_languages,.m_empty_dictionary-.m_languages,.m_empty_dictionary-.m_languages,.m_empty_dictionary-.m_languages,19
+.m_language_python: .quad .m_dictionary_python_0-.m_languages,.m_dictionary_python_1-.m_languages,.m_dictionary_python_2-.m_languages,.m_dictionary_python_3-.m_languages,.m_dictionary_python_4-.m_languages,1
+.m_language_javascript: .quad .m_dictionary_javascript_0-.m_languages,.m_dictionary_javascript_1-.m_languages,.m_dictionary_javascript_2-.m_languages,.m_dictionary_javascript_3-.m_languages,.m_dictionary_javascript_4-.m_languages,146
+.m_language_go: .quad .m_dictionary_go_0-.m_languages,.m_dictionary_go_1-.m_languages,.m_dictionary_go_2-.m_languages,.m_dictionary_go_3-.m_languages,.m_dictionary_go_4-.m_languages,18
+.m_language_rust: .quad .m_dictionary_rust_0-.m_languages,.m_dictionary_rust_1-.m_languages,.m_dictionary_rust_2-.m_languages,.m_dictionary_rust_3-.m_languages,.m_dictionary_rust_4-.m_languages,2
+.m_language_json: .quad .m_dictionary_json_0-.m_languages,.m_dictionary_json_1-.m_languages,.m_dictionary_json_2-.m_languages,.m_dictionary_json_3-.m_languages,.m_dictionary_json_4-.m_languages,34
+.m_language_c: .quad .m_dictionary_c_0-.m_languages,.m_dictionary_c_1-.m_languages,.m_dictionary_c_2-.m_languages,.m_dictionary_c_3-.m_languages,.m_dictionary_c_4-.m_languages,2
+.m_language_cpp: .quad .m_dictionary_cpp_0-.m_languages,.m_dictionary_cpp_1-.m_languages,.m_dictionary_cpp_2-.m_languages,.m_dictionary_cpp_3-.m_languages,.m_dictionary_cpp_4-.m_languages,2
+.m_language_sql: .quad .m_dictionary_sql_0-.m_languages,.m_dictionary_sql_1-.m_languages,.m_dictionary_sql_2-.m_languages,.m_dictionary_sql_3-.m_languages,.m_dictionary_sql_4-.m_languages,68
+.m_language_bash: .quad .m_dictionary_bash_0-.m_languages,.m_dictionary_bash_1-.m_languages,.m_dictionary_bash_2-.m_languages,.m_dictionary_bash_3-.m_languages,.m_dictionary_bash_4-.m_languages,17
+.m_language_yaml: .quad .m_dictionary_yaml_0-.m_languages,.m_dictionary_yaml_1-.m_languages,.m_dictionary_yaml_2-.m_languages,.m_dictionary_yaml_3-.m_languages,.m_dictionary_yaml_4-.m_languages,1
+.m_language_assembly: .quad .m_dictionary_assembly_0-.m_languages,.m_dictionary_assembly_1-.m_languages,.m_dictionary_assembly_2-.m_languages,.m_dictionary_assembly_3-.m_languages,.m_dictionary_assembly_4-.m_languages,9
+.m_dictionary_python_0:
+ .asciz "and"
+ .asciz "as"
+ .asciz "assert"
+ .asciz "async"
+ .asciz "await"
+ .asciz "break"
+ .asciz "case"
+ .asciz "class"
+ .asciz "continue"
+ .asciz "def"
+ .asciz "del"
+ .asciz "elif"
+ .asciz "else"
+ .asciz "except"
+ .asciz "finally"
+ .asciz "for"
+ .asciz "from"
+ .asciz "global"
+ .asciz "if"
+ .asciz "import"
+ .asciz "in"
+ .asciz "is"
+ .asciz "lambda"
+ .asciz "match"
+ .asciz "nonlocal"
+ .asciz "not"
+ .asciz "or"
+ .asciz "pass"
+ .asciz "raise"
+ .asciz "return"
+ .asciz "try"
+ .asciz "while"
+ .asciz "with"
+ .asciz "yield"
+ .byte 0
+.m_dictionary_python_1:
+ .asciz "__debug__"
+ .asciz "Ellipsis"
+ .asciz "False"
+ .asciz "None"
+ .asciz "NotImplemented"
+ .asciz "True"
+ .byte 0
+.m_dictionary_python_2:
+ .asciz "__import__"
+ .asciz "abs"
+ .asciz "all"
+ .asciz "any"
+ .asciz "ascii"
+ .asciz "bin"
+ .asciz "bool"
+ .asciz "breakpoint"
+ .asciz "bytearray"
+ .asciz "bytes"
+ .asciz "callable"
+ .asciz "chr"
+ .asciz "classmethod"
+ .asciz "compile"
+ .asciz "complex"
+ .asciz "delattr"
+ .asciz "dict"
+ .asciz "dir"
+ .asciz "divmod"
+ .asciz "enumerate"
+ .asciz "eval"
+ .asciz "exec"
+ .asciz "filter"
+ .asciz "float"
+ .asciz "format"
+ .asciz "frozenset"
+ .asciz "getattr"
+ .asciz "globals"
+ .asciz "hasattr"
+ .asciz "hash"
+ .asciz "help"
+ .asciz "hex"
+ .asciz "id"
+ .asciz "input"
+ .asciz "int"
+ .asciz "isinstance"
+ .asciz "issubclass"
+ .asciz "iter"
+ .asciz "len"
+ .asciz "list"
+ .asciz "locals"
+ .asciz "map"
+ .asciz "max"
+ .asciz "memoryview"
+ .asciz "min"
+ .asciz "next"
+ .asciz "object"
+ .asciz "oct"
+ .asciz "open"
+ .asciz "ord"
+ .asciz "pow"
+ .asciz "print"
+ .asciz "property"
+ .asciz "range"
+ .asciz "repr"
+ .asciz "reversed"
+ .asciz "round"
+ .asciz "set"
+ .asciz "setattr"
+ .asciz "slice"
+ .asciz "sorted"
+ .asciz "staticmethod"
+ .asciz "str"
+ .asciz "sum"
+ .asciz "super"
+ .asciz "tuple"
+ .asciz "type"
+ .asciz "vars"
+ .asciz "zip"
+ .byte 0
+.m_dictionary_python_3:
+ .asciz "Any"
+ .asciz "Callable"
+ .asciz "Coroutine"
+ .asciz "Dict"
+ .asciz "List"
+ .asciz "Literal"
+ .asciz "Generic"
+ .asciz "Optional"
+ .asciz "Sequence"
+ .asciz "Set"
+ .asciz "Tuple"
+ .asciz "Type"
+ .asciz "Union"
+ .byte 0
+.m_dictionary_python_4:
+ .byte 0
+.m_dictionary_javascript_0:
+ .asciz "as"
+ .asciz "in"
+ .asciz "of"
+ .asciz "if"
+ .asciz "for"
+ .asciz "while"
+ .asciz "finally"
+ .asciz "var"
+ .asciz "new"
+ .asciz "function"
+ .asciz "do"
+ .asciz "return"
+ .asciz "void"
+ .asciz "else"
+ .asciz "break"
+ .asciz "catch"
+ .asciz "instanceof"
+ .asciz "with"
+ .asciz "throw"
+ .asciz "case"
+ .asciz "default"
+ .asciz "try"
+ .asciz "switch"
+ .asciz "continue"
+ .asciz "typeof"
+ .asciz "delete"
+ .asciz "let"
+ .asciz "yield"
+ .asciz "const"
+ .asciz "class"
+ .asciz "debugger"
+ .asciz "async"
+ .asciz "await"
+ .asciz "static"
+ .asciz "import"
+ .asciz "from"
+ .asciz "export"
+ .asciz "extends"
+ .asciz "using"
+ .byte 0
+.m_dictionary_javascript_1:
+ .asciz "true"
+ .asciz "false"
+ .asciz "null"
+ .asciz "undefined"
+ .asciz "NaN"
+ .asciz "Infinity"
+ .byte 0
+.m_dictionary_javascript_2:
+ .asciz "setInterval"
+ .asciz "setTimeout"
+ .asciz "clearInterval"
+ .asciz "clearTimeout"
+ .asciz "require"
+ .asciz "exports"
+ .asciz "eval"
+ .asciz "isFinite"
+ .asciz "isNaN"
+ .asciz "parseFloat"
+ .asciz "parseInt"
+ .asciz "decodeURI"
+ .asciz "decodeURIComponent"
+ .asciz "encodeURI"
+ .asciz "encodeURIComponent"
+ .asciz "escape"
+ .asciz "unescape"
+ .asciz "Object"
+ .asciz "Function"
+ .asciz "Boolean"
+ .asciz "Symbol"
+ .asciz "Math"
+ .asciz "Date"
+ .asciz "Number"
+ .asciz "BigInt"
+ .asciz "String"
+ .asciz "RegExp"
+ .asciz "Array"
+ .asciz "Float32Array"
+ .asciz "Float64Array"
+ .asciz "Int8Array"
+ .asciz "Uint8Array"
+ .asciz "Uint8ClampedArray"
+ .asciz "Int16Array"
+ .asciz "Int32Array"
+ .asciz "Uint16Array"
+ .asciz "Uint32Array"
+ .asciz "BigInt64Array"
+ .asciz "BigUint64Array"
+ .asciz "Set"
+ .asciz "Map"
+ .asciz "WeakSet"
+ .asciz "WeakMap"
+ .asciz "ArrayBuffer"
+ .asciz "SharedArrayBuffer"
+ .asciz "Atomics"
+ .asciz "DataView"
+ .asciz "JSON"
+ .asciz "Promise"
+ .asciz "Generator"
+ .asciz "GeneratorFunction"
+ .asciz "AsyncFunction"
+ .asciz "Reflect"
+ .asciz "Proxy"
+ .asciz "Intl"
+ .asciz "WebAssembly"
+ .asciz "Error"
+ .asciz "EvalError"
+ .asciz "InternalError"
+ .asciz "RangeError"
+ .asciz "ReferenceError"
+ .asciz "SyntaxError"
+ .asciz "TypeError"
+ .asciz "URIError"
+ .byte 0
+.m_dictionary_javascript_3:
+ .asciz "Object"
+ .asciz "Function"
+ .asciz "Boolean"
+ .asciz "Symbol"
+ .asciz "Math"
+ .asciz "Date"
+ .asciz "Number"
+ .asciz "BigInt"
+ .asciz "String"
+ .asciz "RegExp"
+ .asciz "Array"
+ .asciz "Float32Array"
+ .asciz "Float64Array"
+ .asciz "Int8Array"
+ .asciz "Uint8Array"
+ .asciz "Uint8ClampedArray"
+ .asciz "Int16Array"
+ .asciz "Int32Array"
+ .asciz "Uint16Array"
+ .asciz "Uint32Array"
+ .asciz "BigInt64Array"
+ .asciz "BigUint64Array"
+ .asciz "Set"
+ .asciz "Map"
+ .asciz "WeakSet"
+ .asciz "WeakMap"
+ .asciz "ArrayBuffer"
+ .asciz "SharedArrayBuffer"
+ .asciz "Atomics"
+ .asciz "DataView"
+ .asciz "JSON"
+ .asciz "Promise"
+ .asciz "Generator"
+ .asciz "GeneratorFunction"
+ .asciz "AsyncFunction"
+ .asciz "Reflect"
+ .asciz "Proxy"
+ .asciz "Intl"
+ .asciz "WebAssembly"
+ .byte 0
+.m_dictionary_javascript_4:
+ .asciz "arguments"
+ .asciz "this"
+ .asciz "super"
+ .asciz "console"
+ .asciz "window"
+ .asciz "document"
+ .asciz "localStorage"
+ .asciz "sessionStorage"
+ .asciz "module"
+ .asciz "global"
+ .byte 0
+.m_dictionary_go_0:
+ .asciz "break"
+ .asciz "case"
+ .asciz "chan"
+ .asciz "const"
+ .asciz "continue"
+ .asciz "default"
+ .asciz "defer"
+ .asciz "else"
+ .asciz "fallthrough"
+ .asciz "for"
+ .asciz "func"
+ .asciz "go"
+ .asciz "goto"
+ .asciz "if"
+ .asciz "import"
+ .asciz "interface"
+ .asciz "map"
+ .asciz "package"
+ .asciz "range"
+ .asciz "return"
+ .asciz "select"
+ .asciz "struct"
+ .asciz "switch"
+ .asciz "type"
+ .asciz "var"
+ .byte 0
+.m_dictionary_go_1:
+ .asciz "true"
+ .asciz "false"
+ .asciz "iota"
+ .asciz "nil"
+ .byte 0
+.m_dictionary_go_2:
+ .asciz "append"
+ .asciz "cap"
+ .asciz "close"
+ .asciz "complex"
+ .asciz "copy"
+ .asciz "imag"
+ .asciz "len"
+ .asciz "make"
+ .asciz "new"
+ .asciz "panic"
+ .asciz "print"
+ .asciz "println"
+ .asciz "real"
+ .asciz "recover"
+ .asciz "delete"
+ .byte 0
+.m_dictionary_go_3:
+ .asciz "bool"
+ .asciz "byte"
+ .asciz "complex64"
+ .asciz "complex128"
+ .asciz "error"
+ .asciz "float32"
+ .asciz "float64"
+ .asciz "int8"
+ .asciz "int16"
+ .asciz "int32"
+ .asciz "int64"
+ .asciz "string"
+ .asciz "uint8"
+ .asciz "uint16"
+ .asciz "uint32"
+ .asciz "uint64"
+ .asciz "int"
+ .asciz "uint"
+ .asciz "uintptr"
+ .asciz "rune"
+ .byte 0
+.m_dictionary_go_4:
+ .byte 0
+.m_dictionary_rust_0:
+ .asciz "abstract"
+ .asciz "as"
+ .asciz "async"
+ .asciz "await"
+ .asciz "become"
+ .asciz "box"
+ .asciz "break"
+ .asciz "const"
+ .asciz "continue"
+ .asciz "crate"
+ .asciz "do"
+ .asciz "dyn"
+ .asciz "else"
+ .asciz "enum"
+ .asciz "extern"
+ .asciz "false"
+ .asciz "final"
+ .asciz "fn"
+ .asciz "for"
+ .asciz "if"
+ .asciz "impl"
+ .asciz "in"
+ .asciz "let"
+ .asciz "loop"
+ .asciz "macro"
+ .asciz "match"
+ .asciz "mod"
+ .asciz "move"
+ .asciz "mut"
+ .asciz "override"
+ .asciz "priv"
+ .asciz "pub"
+ .asciz "ref"
+ .asciz "return"
+ .asciz "self"
+ .asciz "Self"
+ .asciz "static"
+ .asciz "struct"
+ .asciz "super"
+ .asciz "trait"
+ .asciz "true"
+ .asciz "try"
+ .asciz "type"
+ .asciz "typeof"
+ .asciz "union"
+ .asciz "unsafe"
+ .asciz "unsized"
+ .asciz "use"
+ .asciz "virtual"
+ .asciz "where"
+ .asciz "while"
+ .asciz "yield"
+ .byte 0
+.m_dictionary_rust_1:
+ .asciz "true"
+ .asciz "false"
+ .byte 0
+.m_dictionary_rust_2:
+ .byte 0
+.m_dictionary_rust_3:
+ .byte 0
+.m_dictionary_rust_4:
+ .asciz "self"
+ .asciz "Self"
+ .byte 0
+.m_dictionary_json_0:
+ .byte 0
+.m_dictionary_json_1:
+ .asciz "true"
+ .asciz "false"
+ .asciz "null"
+ .byte 0
+.m_dictionary_json_2:
+ .byte 0
+.m_dictionary_json_3:
+ .byte 0
+.m_dictionary_json_4:
+ .byte 0
+.m_dictionary_c_0:
+ .asciz "auto"
+ .asciz "break"
+ .asciz "case"
+ .asciz "char"
+ .asciz "const"
+ .asciz "continue"
+ .asciz "default"
+ .asciz "do"
+ .asciz "double"
+ .asciz "else"
+ .asciz "enum"
+ .asciz "extern"
+ .asciz "float"
+ .asciz "for"
+ .asciz "goto"
+ .asciz "if"
+ .asciz "inline"
+ .asciz "int"
+ .asciz "long"
+ .asciz "register"
+ .asciz "restrict"
+ .asciz "return"
+ .asciz "short"
+ .asciz "signed"
+ .asciz "sizeof"
+ .asciz "static"
+ .asciz "struct"
+ .asciz "switch"
+ .asciz "typedef"
+ .asciz "union"
+ .asciz "unsigned"
+ .asciz "void"
+ .asciz "volatile"
+ .asciz "while"
+ .asciz "_Atomic"
+ .asciz "_Bool"
+ .asciz "_Complex"
+ .asciz "_Generic"
+ .asciz "_Imaginary"
+ .asciz "_Noreturn"
+ .asciz "_Static_assert"
+ .asciz "_Thread_local"
+ .byte 0
+.m_dictionary_c_1:
+ .asciz "true"
+ .asciz "false"
+ .asciz "NULL"
+ .byte 0
+.m_dictionary_c_2:
+ .byte 0
+.m_dictionary_c_3:
+ .byte 0
+.m_dictionary_c_4:
+ .byte 0
+.m_dictionary_cpp_0:
+ .asciz "alignas"
+ .asciz "alignof"
+ .asciz "and"
+ .asciz "and_eq"
+ .asciz "asm"
+ .asciz "auto"
+ .asciz "bitand"
+ .asciz "bitor"
+ .asciz "bool"
+ .asciz "break"
+ .asciz "case"
+ .asciz "catch"
+ .asciz "char"
+ .asciz "char8_t"
+ .asciz "char16_t"
+ .asciz "char32_t"
+ .asciz "class"
+ .asciz "compl"
+ .asciz "concept"
+ .asciz "const"
+ .asciz "consteval"
+ .asciz "constexpr"
+ .asciz "constinit"
+ .asciz "const_cast"
+ .asciz "continue"
+ .asciz "co_await"
+ .asciz "co_return"
+ .asciz "co_yield"
+ .asciz "decltype"
+ .asciz "default"
+ .asciz "delete"
+ .asciz "do"
+ .asciz "double"
+ .asciz "dynamic_cast"
+ .asciz "else"
+ .asciz "enum"
+ .asciz "explicit"
+ .asciz "export"
+ .asciz "extern"
+ .asciz "false"
+ .asciz "float"
+ .asciz "for"
+ .asciz "friend"
+ .asciz "goto"
+ .asciz "if"
+ .asciz "inline"
+ .asciz "int"
+ .asciz "long"
+ .asciz "mutable"
+ .asciz "namespace"
+ .asciz "new"
+ .asciz "noexcept"
+ .asciz "not"
+ .asciz "not_eq"
+ .asciz "nullptr"
+ .asciz "operator"
+ .asciz "or"
+ .asciz "or_eq"
+ .asciz "private"
+ .asciz "protected"
+ .asciz "public"
+ .asciz "register"
+ .asciz "reinterpret_cast"
+ .asciz "requires"
+ .asciz "return"
+ .asciz "short"
+ .asciz "signed"
+ .asciz "sizeof"
+ .asciz "static"
+ .asciz "static_assert"
+ .asciz "static_cast"
+ .asciz "struct"
+ .asciz "switch"
+ .asciz "template"
+ .asciz "this"
+ .asciz "thread_local"
+ .asciz "throw"
+ .asciz "true"
+ .asciz "try"
+ .asciz "typedef"
+ .asciz "typeid"
+ .asciz "typename"
+ .asciz "union"
+ .asciz "unsigned"
+ .asciz "using"
+ .asciz "virtual"
+ .asciz "void"
+ .asciz "volatile"
+ .asciz "wchar_t"
+ .asciz "while"
+ .asciz "xor"
+ .asciz "xor_eq"
+ .byte 0
+.m_dictionary_cpp_1:
+ .asciz "true"
+ .asciz "false"
+ .asciz "nullptr"
+ .byte 0
+.m_dictionary_cpp_2:
+ .byte 0
+.m_dictionary_cpp_3:
+ .byte 0
+.m_dictionary_cpp_4:
+ .byte 0
+.m_dictionary_sql_0:
+ .asciz "select"
+ .asciz "insert"
+ .asciz "update"
+ .asciz "delete"
+ .asciz "from"
+ .asciz "where"
+ .asciz "into"
+ .asciz "values"
+ .asciz "create"
+ .asciz "alter"
+ .asciz "table"
+ .asciz "drop"
+ .asciz "join"
+ .asciz "left"
+ .asciz "right"
+ .asciz "inner"
+ .asciz "outer"
+ .asciz "full"
+ .asciz "on"
+ .asciz "as"
+ .asciz "and"
+ .asciz "or"
+ .asciz "not"
+ .asciz "null"
+ .asciz "distinct"
+ .asciz "order"
+ .asciz "by"
+ .asciz "group"
+ .asciz "having"
+ .asciz "limit"
+ .asciz "offset"
+ .asciz "union"
+ .asciz "all"
+ .asciz "case"
+ .asciz "when"
+ .asciz "then"
+ .asciz "else"
+ .asciz "end"
+ .asciz "begin"
+ .asciz "commit"
+ .asciz "rollback"
+ .asciz "primary"
+ .asciz "key"
+ .asciz "references"
+ .asciz "constraint"
+ .asciz "index"
+ .asciz "view"
+ .asciz "database"
+ .asciz "grant"
+ .asciz "revoke"
+ .asciz "count"
+ .asciz "sum"
+ .asciz "avg"
+ .asciz "min"
+ .asciz "max"
+ .byte 0
+.m_dictionary_sql_1:
+ .asciz "true"
+ .asciz "false"
+ .asciz "null"
+ .byte 0
+.m_dictionary_sql_2:
+ .byte 0
+.m_dictionary_sql_3:
+ .byte 0
+.m_dictionary_sql_4:
+ .byte 0
+.m_dictionary_bash_0:
+ .asciz "if"
+ .asciz "then"
+ .asciz "else"
+ .asciz "elif"
+ .asciz "fi"
+ .asciz "for"
+ .asciz "while"
+ .asciz "in"
+ .asciz "do"
+ .asciz "done"
+ .asciz "case"
+ .asciz "esac"
+ .asciz "function"
+ .asciz "select"
+ .asciz "until"
+ .asciz "time"
+ .asciz "coproc"
+ .byte 0
+.m_dictionary_bash_1:
+ .byte 0
+.m_dictionary_bash_2:
+ .asciz "echo"
+ .asciz "printf"
+ .asciz "cd"
+ .asciz "pwd"
+ .asciz "read"
+ .asciz "export"
+ .asciz "source"
+ .asciz "alias"
+ .asciz "exit"
+ .asciz "eval"
+ .asciz "exec"
+ .asciz "set"
+ .asciz "unset"
+ .asciz "test"
+ .asciz "type"
+ .asciz "local"
+ .asciz "return"
+ .asciz "shift"
+ .asciz "trap"
+ .byte 0
+.m_dictionary_bash_3:
+ .byte 0
+.m_dictionary_bash_4:
+ .byte 0
+.m_dictionary_yaml_0:
+ .byte 0
+.m_dictionary_yaml_1:
+ .asciz "true"
+ .asciz "false"
+ .asciz "yes"
+ .asciz "no"
+ .asciz "on"
+ .asciz "off"
+ .asciz "null"
+ .byte 0
+.m_dictionary_yaml_2:
+ .byte 0
+.m_dictionary_yaml_3:
+ .byte 0
+.m_dictionary_yaml_4:
+ .byte 0
+.m_dictionary_assembly_0:
+ .byte 0
+.m_dictionary_assembly_1:
+ .byte 0
+.m_dictionary_assembly_2:
+ .byte 0
+.m_dictionary_assembly_3:
+ .byte 0
+.m_dictionary_assembly_4:
+ .byte 0
+.m_empty_dictionary: .byte 0
+.m_declaration_keywords: .asciz "def","class","function","func","fn","struct","interface","enum"
+ .byte 0
+.m_language_aliases:
+ .quad .m_alias_python-.m_languages,.m_language_python-.m_languages
+ .quad .m_alias_py-.m_languages,.m_language_python-.m_languages
+ .quad .m_alias_pycon-.m_languages,.m_language_python-.m_languages
+ .quad .m_alias_gyp-.m_languages,.m_language_python-.m_languages
+ .quad .m_alias_javascript-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_js-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_jsx-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_typescript-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_ts-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_tsx-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_mjs-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_cjs-.m_languages,.m_language_javascript-.m_languages
+ .quad .m_alias_go-.m_languages,.m_language_go-.m_languages
+ .quad .m_alias_golang-.m_languages,.m_language_go-.m_languages
+ .quad .m_alias_rust-.m_languages,.m_language_rust-.m_languages
+ .quad .m_alias_rs-.m_languages,.m_language_rust-.m_languages
+ .quad .m_alias_json-.m_languages,.m_language_json-.m_languages
+ .quad .m_alias_jsonc-.m_languages,.m_language_json-.m_languages
+ .quad .m_alias_c-.m_languages,.m_language_c-.m_languages
+ .quad .m_alias_h-.m_languages,.m_language_c-.m_languages
+ .quad .m_alias_cpp-.m_languages,.m_language_cpp-.m_languages
+ .quad .m_alias_cplusplus-.m_languages,.m_language_cpp-.m_languages
+ .quad .m_alias_cc-.m_languages,.m_language_cpp-.m_languages
+ .quad .m_alias_cxx-.m_languages,.m_language_cpp-.m_languages
+ .quad .m_alias_hpp-.m_languages,.m_language_cpp-.m_languages
+ .quad .m_alias_sql-.m_languages,.m_language_sql-.m_languages
+ .quad .m_alias_bash-.m_languages,.m_language_bash-.m_languages
+ .quad .m_alias_sh-.m_languages,.m_language_bash-.m_languages
+ .quad .m_alias_zsh-.m_languages,.m_language_bash-.m_languages
+ .quad .m_alias_shell-.m_languages,.m_language_bash-.m_languages
+ .quad .m_alias_shellscript-.m_languages,.m_language_bash-.m_languages
+ .quad .m_alias_yaml-.m_languages,.m_language_yaml-.m_languages
+ .quad .m_alias_yml-.m_languages,.m_language_yaml-.m_languages
+ .quad .m_alias_asm-.m_languages,.m_language_assembly-.m_languages
+ .quad .m_alias_x86asm-.m_languages,.m_language_assembly-.m_languages
+ .quad .m_alias_nasm-.m_languages,.m_language_assembly-.m_languages
+ .quad .m_alias_s-.m_languages,.m_language_assembly-.m_languages
+ .quad .m_alias_assembly-.m_languages,.m_language_assembly-.m_languages
+ .quad 0,0
+.m_alias_python: .asciz "python"
+.m_alias_py: .asciz "py"
+.m_alias_pycon: .asciz "pycon"
+.m_alias_gyp: .asciz "gyp"
+.m_alias_javascript: .asciz "javascript"
+.m_alias_js: .asciz "js"
+.m_alias_jsx: .asciz "jsx"
+.m_alias_typescript: .asciz "typescript"
+.m_alias_ts: .asciz "ts"
+.m_alias_tsx: .asciz "tsx"
+.m_alias_mjs: .asciz "mjs"
+.m_alias_cjs: .asciz "cjs"
+.m_alias_go: .asciz "go"
+.m_alias_golang: .asciz "golang"
+.m_alias_rust: .asciz "rust"
+.m_alias_rs: .asciz "rs"
+.m_alias_json: .asciz "json"
+.m_alias_jsonc: .asciz "jsonc"
+.m_alias_c: .asciz "c"
+.m_alias_h: .asciz "h"
+.m_alias_cpp: .asciz "cpp"
+.m_alias_cplusplus: .asciz "c++"
+.m_alias_cc: .asciz "cc"
+.m_alias_cxx: .asciz "cxx"
+.m_alias_hpp: .asciz "hpp"
+.m_alias_sql: .asciz "sql"
+.m_alias_bash: .asciz "bash"
+.m_alias_sh: .asciz "sh"
+.m_alias_zsh: .asciz "zsh"
+.m_alias_shell: .asciz "shell"
+.m_alias_shellscript: .asciz "shellscript"
+.m_alias_yaml: .asciz "yaml"
+.m_alias_yml: .asciz "yml"
+.m_alias_asm: .asciz "asm"
+.m_alias_x86asm: .asciz "x86asm"
+.m_alias_nasm: .asciz "nasm"
+.m_alias_s: .asciz "s"
+.m_alias_assembly: .asciz "assembly"
+.m_syntax_palettes:
+ .quad .m_syntax_0_0-.m_syntax_palettes,.m_syntax_0_0_len
+ .quad .m_syntax_0_1-.m_syntax_palettes,.m_syntax_0_1_len
+ .quad .m_syntax_0_2-.m_syntax_palettes,.m_syntax_0_2_len
+ .quad .m_syntax_0_3-.m_syntax_palettes,.m_syntax_0_3_len
+ .quad .m_syntax_0_4-.m_syntax_palettes,.m_syntax_0_4_len
+ .quad .m_syntax_0_5-.m_syntax_palettes,.m_syntax_0_5_len
+ .quad .m_syntax_0_6-.m_syntax_palettes,.m_syntax_0_6_len
+ .quad .m_syntax_0_7-.m_syntax_palettes,.m_syntax_0_7_len
+ .quad .m_syntax_0_8-.m_syntax_palettes,.m_syntax_0_8_len
+ .quad .m_syntax_0_9-.m_syntax_palettes,.m_syntax_0_9_len
+ .quad .m_syntax_0_10-.m_syntax_palettes,.m_syntax_0_10_len
+ .quad .m_syntax_0_11-.m_syntax_palettes,.m_syntax_0_11_len
+ .quad .m_syntax_1_0-.m_syntax_palettes,.m_syntax_1_0_len
+ .quad .m_syntax_1_1-.m_syntax_palettes,.m_syntax_1_1_len
+ .quad .m_syntax_1_2-.m_syntax_palettes,.m_syntax_1_2_len
+ .quad .m_syntax_1_3-.m_syntax_palettes,.m_syntax_1_3_len
+ .quad .m_syntax_1_4-.m_syntax_palettes,.m_syntax_1_4_len
+ .quad .m_syntax_1_5-.m_syntax_palettes,.m_syntax_1_5_len
+ .quad .m_syntax_1_6-.m_syntax_palettes,.m_syntax_1_6_len
+ .quad .m_syntax_1_7-.m_syntax_palettes,.m_syntax_1_7_len
+ .quad .m_syntax_1_8-.m_syntax_palettes,.m_syntax_1_8_len
+ .quad .m_syntax_1_9-.m_syntax_palettes,.m_syntax_1_9_len
+ .quad .m_syntax_1_10-.m_syntax_palettes,.m_syntax_1_10_len
+ .quad .m_syntax_1_11-.m_syntax_palettes,.m_syntax_1_11_len
+ .quad .m_syntax_2_0-.m_syntax_palettes,.m_syntax_2_0_len
+ .quad .m_syntax_2_1-.m_syntax_palettes,.m_syntax_2_1_len
+ .quad .m_syntax_2_2-.m_syntax_palettes,.m_syntax_2_2_len
+ .quad .m_syntax_2_3-.m_syntax_palettes,.m_syntax_2_3_len
+ .quad .m_syntax_2_4-.m_syntax_palettes,.m_syntax_2_4_len
+ .quad .m_syntax_2_5-.m_syntax_palettes,.m_syntax_2_5_len
+ .quad .m_syntax_2_6-.m_syntax_palettes,.m_syntax_2_6_len
+ .quad .m_syntax_2_7-.m_syntax_palettes,.m_syntax_2_7_len
+ .quad .m_syntax_2_8-.m_syntax_palettes,.m_syntax_2_8_len
+ .quad .m_syntax_2_9-.m_syntax_palettes,.m_syntax_2_9_len
+ .quad .m_syntax_2_10-.m_syntax_palettes,.m_syntax_2_10_len
+ .quad .m_syntax_2_11-.m_syntax_palettes,.m_syntax_2_11_len
+ .quad .m_syntax_3_0-.m_syntax_palettes,.m_syntax_3_0_len
+ .quad .m_syntax_3_1-.m_syntax_palettes,.m_syntax_3_1_len
+ .quad .m_syntax_3_2-.m_syntax_palettes,.m_syntax_3_2_len
+ .quad .m_syntax_3_3-.m_syntax_palettes,.m_syntax_3_3_len
+ .quad .m_syntax_3_4-.m_syntax_palettes,.m_syntax_3_4_len
+ .quad .m_syntax_3_5-.m_syntax_palettes,.m_syntax_3_5_len
+ .quad .m_syntax_3_6-.m_syntax_palettes,.m_syntax_3_6_len
+ .quad .m_syntax_3_7-.m_syntax_palettes,.m_syntax_3_7_len
+ .quad .m_syntax_3_8-.m_syntax_palettes,.m_syntax_3_8_len
+ .quad .m_syntax_3_9-.m_syntax_palettes,.m_syntax_3_9_len
+ .quad .m_syntax_3_10-.m_syntax_palettes,.m_syntax_3_10_len
+ .quad .m_syntax_3_11-.m_syntax_palettes,.m_syntax_3_11_len
+ .quad .m_syntax_4_0-.m_syntax_palettes,.m_syntax_4_0_len
+ .quad .m_syntax_4_1-.m_syntax_palettes,.m_syntax_4_1_len
+ .quad .m_syntax_4_2-.m_syntax_palettes,.m_syntax_4_2_len
+ .quad .m_syntax_4_3-.m_syntax_palettes,.m_syntax_4_3_len
+ .quad .m_syntax_4_4-.m_syntax_palettes,.m_syntax_4_4_len
+ .quad .m_syntax_4_5-.m_syntax_palettes,.m_syntax_4_5_len
+ .quad .m_syntax_4_6-.m_syntax_palettes,.m_syntax_4_6_len
+ .quad .m_syntax_4_7-.m_syntax_palettes,.m_syntax_4_7_len
+ .quad .m_syntax_4_8-.m_syntax_palettes,.m_syntax_4_8_len
+ .quad .m_syntax_4_9-.m_syntax_palettes,.m_syntax_4_9_len
+ .quad .m_syntax_4_10-.m_syntax_palettes,.m_syntax_4_10_len
+ .quad .m_syntax_4_11-.m_syntax_palettes,.m_syntax_4_11_len
+ .quad .m_syntax_5_0-.m_syntax_palettes,.m_syntax_5_0_len
+ .quad .m_syntax_5_1-.m_syntax_palettes,.m_syntax_5_1_len
+ .quad .m_syntax_5_2-.m_syntax_palettes,.m_syntax_5_2_len
+ .quad .m_syntax_5_3-.m_syntax_palettes,.m_syntax_5_3_len
+ .quad .m_syntax_5_4-.m_syntax_palettes,.m_syntax_5_4_len
+ .quad .m_syntax_5_5-.m_syntax_palettes,.m_syntax_5_5_len
+ .quad .m_syntax_5_6-.m_syntax_palettes,.m_syntax_5_6_len
+ .quad .m_syntax_5_7-.m_syntax_palettes,.m_syntax_5_7_len
+ .quad .m_syntax_5_8-.m_syntax_palettes,.m_syntax_5_8_len
+ .quad .m_syntax_5_9-.m_syntax_palettes,.m_syntax_5_9_len
+ .quad .m_syntax_5_10-.m_syntax_palettes,.m_syntax_5_10_len
+ .quad .m_syntax_5_11-.m_syntax_palettes,.m_syntax_5_11_len
+ .quad .m_syntax_6_0-.m_syntax_palettes,.m_syntax_6_0_len
+ .quad .m_syntax_6_1-.m_syntax_palettes,.m_syntax_6_1_len
+ .quad .m_syntax_6_2-.m_syntax_palettes,.m_syntax_6_2_len
+ .quad .m_syntax_6_3-.m_syntax_palettes,.m_syntax_6_3_len
+ .quad .m_syntax_6_4-.m_syntax_palettes,.m_syntax_6_4_len
+ .quad .m_syntax_6_5-.m_syntax_palettes,.m_syntax_6_5_len
+ .quad .m_syntax_6_6-.m_syntax_palettes,.m_syntax_6_6_len
+ .quad .m_syntax_6_7-.m_syntax_palettes,.m_syntax_6_7_len
+ .quad .m_syntax_6_8-.m_syntax_palettes,.m_syntax_6_8_len
+ .quad .m_syntax_6_9-.m_syntax_palettes,.m_syntax_6_9_len
+ .quad .m_syntax_6_10-.m_syntax_palettes,.m_syntax_6_10_len
+ .quad .m_syntax_6_11-.m_syntax_palettes,.m_syntax_6_11_len
+ .quad .m_syntax_7_0-.m_syntax_palettes,.m_syntax_7_0_len
+ .quad .m_syntax_7_1-.m_syntax_palettes,.m_syntax_7_1_len
+ .quad .m_syntax_7_2-.m_syntax_palettes,.m_syntax_7_2_len
+ .quad .m_syntax_7_3-.m_syntax_palettes,.m_syntax_7_3_len
+ .quad .m_syntax_7_4-.m_syntax_palettes,.m_syntax_7_4_len
+ .quad .m_syntax_7_5-.m_syntax_palettes,.m_syntax_7_5_len
+ .quad .m_syntax_7_6-.m_syntax_palettes,.m_syntax_7_6_len
+ .quad .m_syntax_7_7-.m_syntax_palettes,.m_syntax_7_7_len
+ .quad .m_syntax_7_8-.m_syntax_palettes,.m_syntax_7_8_len
+ .quad .m_syntax_7_9-.m_syntax_palettes,.m_syntax_7_9_len
+ .quad .m_syntax_7_10-.m_syntax_palettes,.m_syntax_7_10_len
+ .quad .m_syntax_7_11-.m_syntax_palettes,.m_syntax_7_11_len
+ .quad .m_syntax_8_0-.m_syntax_palettes,.m_syntax_8_0_len
+ .quad .m_syntax_8_1-.m_syntax_palettes,.m_syntax_8_1_len
+ .quad .m_syntax_8_2-.m_syntax_palettes,.m_syntax_8_2_len
+ .quad .m_syntax_8_3-.m_syntax_palettes,.m_syntax_8_3_len
+ .quad .m_syntax_8_4-.m_syntax_palettes,.m_syntax_8_4_len
+ .quad .m_syntax_8_5-.m_syntax_palettes,.m_syntax_8_5_len
+ .quad .m_syntax_8_6-.m_syntax_palettes,.m_syntax_8_6_len
+ .quad .m_syntax_8_7-.m_syntax_palettes,.m_syntax_8_7_len
+ .quad .m_syntax_8_8-.m_syntax_palettes,.m_syntax_8_8_len
+ .quad .m_syntax_8_9-.m_syntax_palettes,.m_syntax_8_9_len
+ .quad .m_syntax_8_10-.m_syntax_palettes,.m_syntax_8_10_len
+ .quad .m_syntax_8_11-.m_syntax_palettes,.m_syntax_8_11_len
+ .quad .m_syntax_9_0-.m_syntax_palettes,.m_syntax_9_0_len
+ .quad .m_syntax_9_1-.m_syntax_palettes,.m_syntax_9_1_len
+ .quad .m_syntax_9_2-.m_syntax_palettes,.m_syntax_9_2_len
+ .quad .m_syntax_9_3-.m_syntax_palettes,.m_syntax_9_3_len
+ .quad .m_syntax_9_4-.m_syntax_palettes,.m_syntax_9_4_len
+ .quad .m_syntax_9_5-.m_syntax_palettes,.m_syntax_9_5_len
+ .quad .m_syntax_9_6-.m_syntax_palettes,.m_syntax_9_6_len
+ .quad .m_syntax_9_7-.m_syntax_palettes,.m_syntax_9_7_len
+ .quad .m_syntax_9_8-.m_syntax_palettes,.m_syntax_9_8_len
+ .quad .m_syntax_9_9-.m_syntax_palettes,.m_syntax_9_9_len
+ .quad .m_syntax_9_10-.m_syntax_palettes,.m_syntax_9_10_len
+ .quad .m_syntax_9_11-.m_syntax_palettes,.m_syntax_9_11_len
+ .quad .m_syntax_10_0-.m_syntax_palettes,.m_syntax_10_0_len
+ .quad .m_syntax_10_1-.m_syntax_palettes,.m_syntax_10_1_len
+ .quad .m_syntax_10_2-.m_syntax_palettes,.m_syntax_10_2_len
+ .quad .m_syntax_10_3-.m_syntax_palettes,.m_syntax_10_3_len
+ .quad .m_syntax_10_4-.m_syntax_palettes,.m_syntax_10_4_len
+ .quad .m_syntax_10_5-.m_syntax_palettes,.m_syntax_10_5_len
+ .quad .m_syntax_10_6-.m_syntax_palettes,.m_syntax_10_6_len
+ .quad .m_syntax_10_7-.m_syntax_palettes,.m_syntax_10_7_len
+ .quad .m_syntax_10_8-.m_syntax_palettes,.m_syntax_10_8_len
+ .quad .m_syntax_10_9-.m_syntax_palettes,.m_syntax_10_9_len
+ .quad .m_syntax_10_10-.m_syntax_palettes,.m_syntax_10_10_len
+ .quad .m_syntax_10_11-.m_syntax_palettes,.m_syntax_10_11_len
+ .quad .m_syntax_11_0-.m_syntax_palettes,.m_syntax_11_0_len
+ .quad .m_syntax_11_1-.m_syntax_palettes,.m_syntax_11_1_len
+ .quad .m_syntax_11_2-.m_syntax_palettes,.m_syntax_11_2_len
+ .quad .m_syntax_11_3-.m_syntax_palettes,.m_syntax_11_3_len
+ .quad .m_syntax_11_4-.m_syntax_palettes,.m_syntax_11_4_len
+ .quad .m_syntax_11_5-.m_syntax_palettes,.m_syntax_11_5_len
+ .quad .m_syntax_11_6-.m_syntax_palettes,.m_syntax_11_6_len
+ .quad .m_syntax_11_7-.m_syntax_palettes,.m_syntax_11_7_len
+ .quad .m_syntax_11_8-.m_syntax_palettes,.m_syntax_11_8_len
+ .quad .m_syntax_11_9-.m_syntax_palettes,.m_syntax_11_9_len
+ .quad .m_syntax_11_10-.m_syntax_palettes,.m_syntax_11_10_len
+ .quad .m_syntax_11_11-.m_syntax_palettes,.m_syntax_11_11_len
+ .quad .m_syntax_12_0-.m_syntax_palettes,.m_syntax_12_0_len
+ .quad .m_syntax_12_1-.m_syntax_palettes,.m_syntax_12_1_len
+ .quad .m_syntax_12_2-.m_syntax_palettes,.m_syntax_12_2_len
+ .quad .m_syntax_12_3-.m_syntax_palettes,.m_syntax_12_3_len
+ .quad .m_syntax_12_4-.m_syntax_palettes,.m_syntax_12_4_len
+ .quad .m_syntax_12_5-.m_syntax_palettes,.m_syntax_12_5_len
+ .quad .m_syntax_12_6-.m_syntax_palettes,.m_syntax_12_6_len
+ .quad .m_syntax_12_7-.m_syntax_palettes,.m_syntax_12_7_len
+ .quad .m_syntax_12_8-.m_syntax_palettes,.m_syntax_12_8_len
+ .quad .m_syntax_12_9-.m_syntax_palettes,.m_syntax_12_9_len
+ .quad .m_syntax_12_10-.m_syntax_palettes,.m_syntax_12_10_len
+ .quad .m_syntax_12_11-.m_syntax_palettes,.m_syntax_12_11_len
+ .quad .m_syntax_13_0-.m_syntax_palettes,.m_syntax_13_0_len
+ .quad .m_syntax_13_1-.m_syntax_palettes,.m_syntax_13_1_len
+ .quad .m_syntax_13_2-.m_syntax_palettes,.m_syntax_13_2_len
+ .quad .m_syntax_13_3-.m_syntax_palettes,.m_syntax_13_3_len
+ .quad .m_syntax_13_4-.m_syntax_palettes,.m_syntax_13_4_len
+ .quad .m_syntax_13_5-.m_syntax_palettes,.m_syntax_13_5_len
+ .quad .m_syntax_13_6-.m_syntax_palettes,.m_syntax_13_6_len
+ .quad .m_syntax_13_7-.m_syntax_palettes,.m_syntax_13_7_len
+ .quad .m_syntax_13_8-.m_syntax_palettes,.m_syntax_13_8_len
+ .quad .m_syntax_13_9-.m_syntax_palettes,.m_syntax_13_9_len
+ .quad .m_syntax_13_10-.m_syntax_palettes,.m_syntax_13_10_len
+ .quad .m_syntax_13_11-.m_syntax_palettes,.m_syntax_13_11_len
+ .quad .m_syntax_14_0-.m_syntax_palettes,.m_syntax_14_0_len
+ .quad .m_syntax_14_1-.m_syntax_palettes,.m_syntax_14_1_len
+ .quad .m_syntax_14_2-.m_syntax_palettes,.m_syntax_14_2_len
+ .quad .m_syntax_14_3-.m_syntax_palettes,.m_syntax_14_3_len
+ .quad .m_syntax_14_4-.m_syntax_palettes,.m_syntax_14_4_len
+ .quad .m_syntax_14_5-.m_syntax_palettes,.m_syntax_14_5_len
+ .quad .m_syntax_14_6-.m_syntax_palettes,.m_syntax_14_6_len
+ .quad .m_syntax_14_7-.m_syntax_palettes,.m_syntax_14_7_len
+ .quad .m_syntax_14_8-.m_syntax_palettes,.m_syntax_14_8_len
+ .quad .m_syntax_14_9-.m_syntax_palettes,.m_syntax_14_9_len
+ .quad .m_syntax_14_10-.m_syntax_palettes,.m_syntax_14_10_len
+ .quad .m_syntax_14_11-.m_syntax_palettes,.m_syntax_14_11_len
+ .quad .m_syntax_15_0-.m_syntax_palettes,.m_syntax_15_0_len
+ .quad .m_syntax_15_1-.m_syntax_palettes,.m_syntax_15_1_len
+ .quad .m_syntax_15_2-.m_syntax_palettes,.m_syntax_15_2_len
+ .quad .m_syntax_15_3-.m_syntax_palettes,.m_syntax_15_3_len
+ .quad .m_syntax_15_4-.m_syntax_palettes,.m_syntax_15_4_len
+ .quad .m_syntax_15_5-.m_syntax_palettes,.m_syntax_15_5_len
+ .quad .m_syntax_15_6-.m_syntax_palettes,.m_syntax_15_6_len
+ .quad .m_syntax_15_7-.m_syntax_palettes,.m_syntax_15_7_len
+ .quad .m_syntax_15_8-.m_syntax_palettes,.m_syntax_15_8_len
+ .quad .m_syntax_15_9-.m_syntax_palettes,.m_syntax_15_9_len
+ .quad .m_syntax_15_10-.m_syntax_palettes,.m_syntax_15_10_len
+ .quad .m_syntax_15_11-.m_syntax_palettes,.m_syntax_15_11_len
+ .quad .m_syntax_16_0-.m_syntax_palettes,.m_syntax_16_0_len
+ .quad .m_syntax_16_1-.m_syntax_palettes,.m_syntax_16_1_len
+ .quad .m_syntax_16_2-.m_syntax_palettes,.m_syntax_16_2_len
+ .quad .m_syntax_16_3-.m_syntax_palettes,.m_syntax_16_3_len
+ .quad .m_syntax_16_4-.m_syntax_palettes,.m_syntax_16_4_len
+ .quad .m_syntax_16_5-.m_syntax_palettes,.m_syntax_16_5_len
+ .quad .m_syntax_16_6-.m_syntax_palettes,.m_syntax_16_6_len
+ .quad .m_syntax_16_7-.m_syntax_palettes,.m_syntax_16_7_len
+ .quad .m_syntax_16_8-.m_syntax_palettes,.m_syntax_16_8_len
+ .quad .m_syntax_16_9-.m_syntax_palettes,.m_syntax_16_9_len
+ .quad .m_syntax_16_10-.m_syntax_palettes,.m_syntax_16_10_len
+ .quad .m_syntax_16_11-.m_syntax_palettes,.m_syntax_16_11_len
+.m_syntax_0_0: .byte 27,91,51,56,59,50,59,50,53,53,59,50,49,53,59,48,109
+.equ .m_syntax_0_0_len,.-.m_syntax_0_0
+.m_syntax_0_1: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_0_1_len,.-.m_syntax_0_1
+.m_syntax_0_2: .byte 27,91,51,56,59,50,59,53,55,59,49,56,54,59,50,51,48,109
+.equ .m_syntax_0_2_len,.-.m_syntax_0_2
+.m_syntax_0_3: .byte 27,91,51,56,59,50,59,50,53,53,59,50,49,53,59,48,109
+.equ .m_syntax_0_3_len,.-.m_syntax_0_3
+.m_syntax_0_4: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_0_4_len,.-.m_syntax_0_4
+.m_syntax_0_5: .byte 27,91,51,56,59,50,59,56,57,59,49,57,52,59,50,53,53,109
+.equ .m_syntax_0_5_len,.-.m_syntax_0_5
+.m_syntax_0_6: .byte 27,91,51,56,59,50,59,50,53,53,59,50,49,53,59,48,109
+.equ .m_syntax_0_6_len,.-.m_syntax_0_6
+.m_syntax_0_7: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_0_7_len,.-.m_syntax_0_7
+.m_syntax_0_8: .byte 27,91,51,56,59,50,59,49,52,57,59,50,51,48,59,50,48,51,109
+.equ .m_syntax_0_8_len,.-.m_syntax_0_8
+.m_syntax_0_9: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_0_9_len,.-.m_syntax_0_9
+.m_syntax_0_10: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_0_10_len,.-.m_syntax_0_10
+.m_syntax_0_11: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_0_11_len,.-.m_syntax_0_11
+.m_syntax_1_0: .byte 27,91,51,56,59,50,59,50,53,53,59,50,52,55,59,49,51,49,109
+.equ .m_syntax_1_0_len,.-.m_syntax_1_0
+.m_syntax_1_1: .byte 27,91,51,56,59,50,59,49,54,51,59,49,55,53,59,49,56,51,109
+.equ .m_syntax_1_1_len,.-.m_syntax_1_1
+.m_syntax_1_2: .byte 27,91,51,56,59,50,59,50,53,53,59,50,52,55,59,49,51,49,109
+.equ .m_syntax_1_2_len,.-.m_syntax_1_2
+.m_syntax_1_3: .byte 27,91,51,56,59,50,59,50,53,53,59,50,52,55,59,49,51,49,109
+.equ .m_syntax_1_3_len,.-.m_syntax_1_3
+.m_syntax_1_4: .byte 27,91,51,56,59,50,59,49,54,51,59,49,55,53,59,49,56,51,109
+.equ .m_syntax_1_4_len,.-.m_syntax_1_4
+.m_syntax_1_5: .byte 27,91,51,56,59,50,59,50,53,53,59,50,52,55,59,49,51,49,109
+.equ .m_syntax_1_5_len,.-.m_syntax_1_5
+.m_syntax_1_6: .byte 27,91,51,56,59,50,59,57,56,59,49,49,52,59,49,54,52,109
+.equ .m_syntax_1_6_len,.-.m_syntax_1_6
+.m_syntax_1_7: .byte 27,91,51,56,59,50,59,49,54,51,59,49,55,53,59,49,56,51,109
+.equ .m_syntax_1_7_len,.-.m_syntax_1_7
+.m_syntax_1_8: .byte 27,91,51,56,59,50,59,50,53,53,59,50,52,55,59,49,51,49,109
+.equ .m_syntax_1_8_len,.-.m_syntax_1_8
+.m_syntax_1_9: .byte 27,91,51,56,59,50,59,50,53,53,59,50,52,55,59,49,51,49,109
+.equ .m_syntax_1_9_len,.-.m_syntax_1_9
+.m_syntax_1_10: .byte 27,91,51,56,59,50,59,50,53,53,59,50,52,55,59,49,51,49,109
+.equ .m_syntax_1_10_len,.-.m_syntax_1_10
+.m_syntax_1_11: .byte 27,91,51,56,59,50,59,49,54,51,59,49,55,53,59,49,56,51,109
+.equ .m_syntax_1_11_len,.-.m_syntax_1_11
+.m_syntax_2_0: .byte 27,91,51,56,59,50,59,49,55,57,59,49,52,54,59,50,52,48,109
+.equ .m_syntax_2_0_len,.-.m_syntax_2_0
+.m_syntax_2_1: .byte 27,91,51,56,59,50,59,49,50,49,59,49,56,52,59,50,53,53,109
+.equ .m_syntax_2_1_len,.-.m_syntax_2_1
+.m_syntax_2_2: .byte 27,91,51,56,59,50,59,49,51,51,59,50,51,50,59,49,53,55,109
+.equ .m_syntax_2_2_len,.-.m_syntax_2_2
+.m_syntax_2_3: .byte 27,91,51,56,59,50,59,49,50,49,59,49,56,52,59,50,53,53,109
+.equ .m_syntax_2_3_len,.-.m_syntax_2_3
+.m_syntax_2_4: .byte 27,91,51,56,59,50,59,49,51,51,59,50,51,50,59,49,53,55,109
+.equ .m_syntax_2_4_len,.-.m_syntax_2_4
+.m_syntax_2_5: .byte 27,91,51,56,59,50,59,49,51,51,59,50,51,50,59,49,53,55,109
+.equ .m_syntax_2_5_len,.-.m_syntax_2_5
+.m_syntax_2_6: .byte 27,91,51,56,59,50,59,49,50,49,59,49,56,52,59,50,53,53,109
+.equ .m_syntax_2_6_len,.-.m_syntax_2_6
+.m_syntax_2_7: .byte 27,91,51,56,59,50,59,49,53,56,59,50,48,51,59,50,53,53,109
+.equ .m_syntax_2_7_len,.-.m_syntax_2_7
+.m_syntax_2_8: .byte 27,91,51,56,59,50,59,49,55,57,59,49,52,54,59,50,52,48,109
+.equ .m_syntax_2_8_len,.-.m_syntax_2_8
+.m_syntax_2_9: .byte 27,91,51,56,59,50,59,50,53,53,59,49,55,49,59,49,49,50,109
+.equ .m_syntax_2_9_len,.-.m_syntax_2_9
+.m_syntax_2_10: .byte 27,91,51,56,59,50,59,50,53,53,59,49,55,49,59,49,49,50,109
+.equ .m_syntax_2_10_len,.-.m_syntax_2_10
+.m_syntax_2_11: .byte 27,91,51,56,59,50,59,49,57,50,59,49,57,54,59,50,48,48,109
+.equ .m_syntax_2_11_len,.-.m_syntax_2_11
+.m_syntax_3_0: .byte 27,91,51,56,59,50,59,49,53,51,59,48,59,48,109
+.equ .m_syntax_3_0_len,.-.m_syntax_3_0
+.m_syntax_3_1: .byte 27,91,51,56,59,50,59,48,59,49,51,52,59,49,55,57,109
+.equ .m_syntax_3_1_len,.-.m_syntax_3_1
+.m_syntax_3_2: .byte 27,91,51,56,59,50,59,54,56,59,56,53,59,49,51,54,109
+.equ .m_syntax_3_2_len,.-.m_syntax_3_2
+.m_syntax_3_3: .byte 27,91,51,56,59,50,59,54,56,59,56,53,59,49,51,54,109
+.equ .m_syntax_3_3_len,.-.m_syntax_3_3
+.m_syntax_3_4: .byte 27,91,51,56,59,50,59,54,56,59,56,53,59,49,51,54,109
+.equ .m_syntax_3_4_len,.-.m_syntax_3_4
+.m_syntax_3_5: .byte 27,91,51,56,59,50,59,54,56,59,56,53,59,49,51,54,109
+.equ .m_syntax_3_5_len,.-.m_syntax_3_5
+.m_syntax_3_6: .byte 27,91,51,56,59,50,59,49,53,51,59,49,53,51,59,49,53,51,109
+.equ .m_syntax_3_6_len,.-.m_syntax_3_6
+.m_syntax_3_7: .byte 27,91,51,56,59,50,59,48,59,49,53,51,59,51,56,109
+.equ .m_syntax_3_7_len,.-.m_syntax_3_7
+.m_syntax_3_8: .byte 27,91,51,56,59,50,59,49,53,51,59,48,59,49,49,53,109
+.equ .m_syntax_3_8_len,.-.m_syntax_3_8
+.m_syntax_3_9: .byte 27,91,51,56,59,50,59,48,59,49,50,56,59,49,50,56,109
+.equ .m_syntax_3_9_len,.-.m_syntax_3_9
+.m_syntax_3_10: .byte 27,91,51,56,59,50,59,48,59,49,50,56,59,49,50,56,109
+.equ .m_syntax_3_10_len,.-.m_syntax_3_10
+.m_syntax_3_11: .byte 27,91,51,56,59,50,59,51,54,59,52,49,59,52,54,109
+.equ .m_syntax_3_11_len,.-.m_syntax_3_11
+.m_syntax_4_0: .byte 27,91,51,56,59,50,59,53,55,59,49,53,56,59,50,51,48,109
+.equ .m_syntax_4_0_len,.-.m_syntax_4_0
+.m_syntax_4_1: .byte 27,91,51,56,59,50,59,50,52,48,59,49,49,51,59,49,49,51,109
+.equ .m_syntax_4_1_len,.-.m_syntax_4_1
+.m_syntax_4_2: .byte 27,91,51,56,59,50,59,56,53,59,49,56,48,59,50,49,50,109
+.equ .m_syntax_4_2_len,.-.m_syntax_4_2
+.m_syntax_4_3: .byte 27,91,51,56,59,50,59,50,52,50,59,49,55,52,59,55,51,109
+.equ .m_syntax_4_3_len,.-.m_syntax_4_3
+.m_syntax_4_4: .byte 27,91,51,56,59,50,59,56,53,59,49,56,48,59,50,49,50,109
+.equ .m_syntax_4_4_len,.-.m_syntax_4_4
+.m_syntax_4_5: .byte 27,91,51,56,59,50,59,53,55,59,49,53,56,59,50,51,48,109
+.equ .m_syntax_4_5_len,.-.m_syntax_4_5
+.m_syntax_4_6: .byte 27,91,51,56,59,50,59,50,52,50,59,49,55,52,59,55,51,109
+.equ .m_syntax_4_6_len,.-.m_syntax_4_6
+.m_syntax_4_7: .byte 27,91,51,56,59,50,59,55,54,59,49,57,49,59,49,53,51,109
+.equ .m_syntax_4_7_len,.-.m_syntax_4_7
+.m_syntax_4_8: .byte 27,91,51,56,59,50,59,50,52,48,59,49,49,51,59,49,49,51,109
+.equ .m_syntax_4_8_len,.-.m_syntax_4_8
+.m_syntax_4_9: .byte 27,91,51,56,59,50,59,57,50,59,57,55,59,49,48,50,109
+.equ .m_syntax_4_9_len,.-.m_syntax_4_9
+.m_syntax_4_10: .byte 27,91,51,56,59,50,59,56,53,59,49,56,48,59,50,49,50,109
+.equ .m_syntax_4_10_len,.-.m_syntax_4_10
+.m_syntax_4_11: .byte 27,91,51,56,59,50,59,57,50,59,57,55,59,49,48,50,109
+.equ .m_syntax_4_11_len,.-.m_syntax_4_11
+.m_syntax_5_0: .byte 27,91,51,55,109
+.equ .m_syntax_5_0_len,.-.m_syntax_5_0
+.m_syntax_5_1: .byte 27,91,51,54,109
+.equ .m_syntax_5_1_len,.-.m_syntax_5_1
+.m_syntax_5_2: .byte 27,91,51,54,109
+.equ .m_syntax_5_2_len,.-.m_syntax_5_2
+.m_syntax_5_3: .byte 27,91,57,52,109
+.equ .m_syntax_5_3_len,.-.m_syntax_5_3
+.m_syntax_5_4: .byte 27,91,57,48,109
+.equ .m_syntax_5_4_len,.-.m_syntax_5_4
+.m_syntax_5_5: .byte 27,91,51,52,109
+.equ .m_syntax_5_5_len,.-.m_syntax_5_5
+.m_syntax_5_6: .byte 27,91,57,48,109
+.equ .m_syntax_5_6_len,.-.m_syntax_5_6
+.m_syntax_5_7: .byte 27,91,51,49,109
+.equ .m_syntax_5_7_len,.-.m_syntax_5_7
+.m_syntax_5_8: .byte 27,91,51,52,109
+.equ .m_syntax_5_8_len,.-.m_syntax_5_8
+.m_syntax_5_9: .byte 27,91,51,53,109
+.equ .m_syntax_5_9_len,.-.m_syntax_5_9
+.m_syntax_5_10: .byte 27,91,51,53,109
+.equ .m_syntax_5_10_len,.-.m_syntax_5_10
+.m_syntax_5_11: .byte 27,91,51,55,109
+.equ .m_syntax_5_11_len,.-.m_syntax_5_11
+.m_syntax_6_0: .byte 27,91,51,56,59,50,59,57,55,59,49,55,52,59,50,51,56,109
+.equ .m_syntax_6_0_len,.-.m_syntax_6_0
+.m_syntax_6_1: .byte 27,91,51,56,59,50,59,50,51,48,59,49,57,50,59,49,50,51,109
+.equ .m_syntax_6_1_len,.-.m_syntax_6_1
+.m_syntax_6_2: .byte 27,91,51,56,59,50,59,50,51,48,59,49,57,50,59,49,50,51,109
+.equ .m_syntax_6_2_len,.-.m_syntax_6_2
+.m_syntax_6_3: .byte 27,91,51,56,59,50,59,49,53,50,59,49,57,53,59,49,50,49,109
+.equ .m_syntax_6_3_len,.-.m_syntax_6_3
+.m_syntax_6_4: .byte 27,91,51,56,59,50,59,49,55,49,59,49,55,56,59,49,57,49,109
+.equ .m_syntax_6_4_len,.-.m_syntax_6_4
+.m_syntax_6_5: .byte 27,91,51,56,59,50,59,50,50,52,59,49,48,56,59,49,49,55,109
+.equ .m_syntax_6_5_len,.-.m_syntax_6_5
+.m_syntax_6_6: .byte 27,91,51,56,59,50,59,57,55,59,49,55,52,59,50,51,56,109
+.equ .m_syntax_6_6_len,.-.m_syntax_6_6
+.m_syntax_6_7: .byte 27,91,51,56,59,50,59,49,53,50,59,49,57,53,59,49,50,49,109
+.equ .m_syntax_6_7_len,.-.m_syntax_6_7
+.m_syntax_6_8: .byte 27,91,51,56,59,50,59,57,55,59,49,55,52,59,50,51,56,109
+.equ .m_syntax_6_8_len,.-.m_syntax_6_8
+.m_syntax_6_9: .byte 27,91,51,56,59,50,59,50,51,48,59,49,57,50,59,49,50,51,109
+.equ .m_syntax_6_9_len,.-.m_syntax_6_9
+.m_syntax_6_10: .byte 27,91,51,56,59,50,59,50,51,48,59,49,57,50,59,49,50,51,109
+.equ .m_syntax_6_10_len,.-.m_syntax_6_10
+.m_syntax_6_11: .byte 27,91,51,56,59,50,59,49,55,49,59,49,55,56,59,49,57,49,109
+.equ .m_syntax_6_11_len,.-.m_syntax_6_11
+.m_syntax_7_0: .byte 27,91,51,56,59,50,59,50,53,53,59,49,56,48,59,56,52,109
+.equ .m_syntax_7_0_len,.-.m_syntax_7_0
+.m_syntax_7_1: .byte 27,91,51,56,59,50,59,49,55,52,59,49,55,50,59,49,54,54,109
+.equ .m_syntax_7_1_len,.-.m_syntax_7_1
+.m_syntax_7_2: .byte 27,91,51,56,59,50,59,53,55,59,49,56,54,59,50,51,48,109
+.equ .m_syntax_7_2_len,.-.m_syntax_7_2
+.m_syntax_7_3: .byte 27,91,51,56,59,50,59,50,53,53,59,49,56,48,59,56,52,109
+.equ .m_syntax_7_3_len,.-.m_syntax_7_3
+.m_syntax_7_4: .byte 27,91,51,56,59,50,59,49,55,52,59,49,55,50,59,49,54,54,109
+.equ .m_syntax_7_4_len,.-.m_syntax_7_4
+.m_syntax_7_5: .byte 27,91,51,56,59,50,59,56,57,59,49,57,52,59,50,53,53,109
+.equ .m_syntax_7_5_len,.-.m_syntax_7_5
+.m_syntax_7_6: .byte 27,91,51,56,59,50,59,50,53,53,59,49,56,48,59,56,52,109
+.equ .m_syntax_7_6_len,.-.m_syntax_7_6
+.m_syntax_7_7: .byte 27,91,51,56,59,50,59,49,55,52,59,49,55,50,59,49,54,54,109
+.equ .m_syntax_7_7_len,.-.m_syntax_7_7
+.m_syntax_7_8: .byte 27,91,51,56,59,50,59,49,52,57,59,50,51,48,59,50,48,51,109
+.equ .m_syntax_7_8_len,.-.m_syntax_7_8
+.m_syntax_7_9: .byte 27,91,51,56,59,50,59,49,55,52,59,49,55,50,59,49,54,54,109
+.equ .m_syntax_7_9_len,.-.m_syntax_7_9
+.m_syntax_7_10: .byte 27,91,51,56,59,50,59,49,55,52,59,49,55,50,59,49,54,54,109
+.equ .m_syntax_7_10_len,.-.m_syntax_7_10
+.m_syntax_7_11: .byte 27,91,51,56,59,50,59,49,55,52,59,49,55,50,59,49,54,54,109
+.equ .m_syntax_7_11_len,.-.m_syntax_7_11
+.m_syntax_8_0: .byte 27,91,51,57,109
+.equ .m_syntax_8_0_len,.-.m_syntax_8_0
+.m_syntax_8_1: .byte 27,91,51,56,59,50,59,49,51,55,59,50,50,48,59,50,51,53,109
+.equ .m_syntax_8_1_len,.-.m_syntax_8_1
+.m_syntax_8_2: .byte 27,91,51,56,59,50,59,49,51,55,59,50,50,48,59,50,51,53,109
+.equ .m_syntax_8_2_len,.-.m_syntax_8_2
+.m_syntax_8_3: .byte 27,91,51,56,59,50,59,49,55,51,59,50,49,54,59,50,51,48,109
+.equ .m_syntax_8_3_len,.-.m_syntax_8_3
+.m_syntax_8_4: .byte 27,91,51,56,59,50,59,49,48,56,59,49,49,50,59,49,51,52,109
+.equ .m_syntax_8_4_len,.-.m_syntax_8_4
+.m_syntax_8_5: .byte 27,91,51,56,59,50,59,49,51,55,59,49,56,48,59,50,53,48,109
+.equ .m_syntax_8_5_len,.-.m_syntax_8_5
+.m_syntax_8_6: .byte 27,91,51,56,59,50,59,49,48,56,59,49,49,50,59,49,51,52,109
+.equ .m_syntax_8_6_len,.-.m_syntax_8_6
+.m_syntax_8_7: .byte 27,91,51,56,59,50,59,50,52,51,59,49,51,57,59,49,54,56,109
+.equ .m_syntax_8_7_len,.-.m_syntax_8_7
+.m_syntax_8_8: .byte 27,91,51,56,59,50,59,49,51,55,59,49,56,48,59,50,53,48,109
+.equ .m_syntax_8_8_len,.-.m_syntax_8_8
+.m_syntax_8_9: .byte 27,91,51,56,59,50,59,50,48,51,59,49,54,54,59,50,52,55,109
+.equ .m_syntax_8_9_len,.-.m_syntax_8_9
+.m_syntax_8_10: .byte 27,91,51,56,59,50,59,50,48,51,59,49,54,54,59,50,52,55,109
+.equ .m_syntax_8_10_len,.-.m_syntax_8_10
+.m_syntax_8_11: .byte 27,91,51,57,109
+.equ .m_syntax_8_11_len,.-.m_syntax_8_11
+.m_syntax_9_0: .byte 27,91,51,56,59,50,59,50,53,48,59,50,48,56,59,48,109
+.equ .m_syntax_9_0_len,.-.m_syntax_9_0
+.m_syntax_9_1: .byte 27,91,51,56,59,50,59,50,53,49,59,49,53,56,59,48,109
+.equ .m_syntax_9_1_len,.-.m_syntax_9_1
+.m_syntax_9_2: .byte 27,91,51,56,59,50,59,50,53,48,59,50,48,56,59,48,109
+.equ .m_syntax_9_2_len,.-.m_syntax_9_2
+.m_syntax_9_3: .byte 27,91,51,56,59,50,59,49,54,53,59,50,53,53,59,49,52,52,109
+.equ .m_syntax_9_3_len,.-.m_syntax_9_3
+.m_syntax_9_4: .byte 27,91,51,56,59,50,59,50,50,55,59,50,50,51,59,50,53,53,109
+.equ .m_syntax_9_4_len,.-.m_syntax_9_4
+.m_syntax_9_5: .byte 27,91,51,56,59,50,59,49,54,49,59,50,53,52,59,50,53,53,109
+.equ .m_syntax_9_5_len,.-.m_syntax_9_5
+.m_syntax_9_6: .byte 27,91,51,56,59,50,59,50,53,49,59,49,53,56,59,48,109
+.equ .m_syntax_9_6_len,.-.m_syntax_9_6
+.m_syntax_9_7: .byte 27,91,51,56,59,50,59,49,54,53,59,50,53,53,59,49,52,52,109
+.equ .m_syntax_9_7_len,.-.m_syntax_9_7
+.m_syntax_9_8: .byte 27,91,51,56,59,50,59,49,54,53,59,50,53,53,59,49,52,52,109
+.equ .m_syntax_9_8_len,.-.m_syntax_9_8
+.m_syntax_9_9: .byte 27,91,51,56,59,50,59,50,53,48,59,50,48,56,59,48,109
+.equ .m_syntax_9_9_len,.-.m_syntax_9_9
+.m_syntax_9_10: .byte 27,91,51,56,59,50,59,50,53,48,59,50,48,56,59,48,109
+.equ .m_syntax_9_10_len,.-.m_syntax_9_10
+.m_syntax_9_11: .byte 27,91,51,56,59,50,59,50,48,49,59,49,52,53,59,50,53,53,109
+.equ .m_syntax_9_11_len,.-.m_syntax_9_11
+.m_syntax_10_0: .byte 27,91,51,48,109
+.equ .m_syntax_10_0_len,.-.m_syntax_10_0
+.m_syntax_10_1: .byte 27,91,51,54,109
+.equ .m_syntax_10_1_len,.-.m_syntax_10_1
+.m_syntax_10_2: .byte 27,91,51,54,109
+.equ .m_syntax_10_2_len,.-.m_syntax_10_2
+.m_syntax_10_3: .byte 27,91,51,52,109
+.equ .m_syntax_10_3_len,.-.m_syntax_10_3
+.m_syntax_10_4: .byte 27,91,57,48,109
+.equ .m_syntax_10_4_len,.-.m_syntax_10_4
+.m_syntax_10_5: .byte 27,91,51,52,109
+.equ .m_syntax_10_5_len,.-.m_syntax_10_5
+.m_syntax_10_6: .byte 27,91,57,48,109
+.equ .m_syntax_10_6_len,.-.m_syntax_10_6
+.m_syntax_10_7: .byte 27,91,51,53,109
+.equ .m_syntax_10_7_len,.-.m_syntax_10_7
+.m_syntax_10_8: .byte 27,91,51,52,109
+.equ .m_syntax_10_8_len,.-.m_syntax_10_8
+.m_syntax_10_9: .byte 27,91,51,56,59,50,59,49,50,56,59,48,59,49,50,56,109
+.equ .m_syntax_10_9_len,.-.m_syntax_10_9
+.m_syntax_10_10: .byte 27,91,51,56,59,50,59,49,50,56,59,48,59,49,50,56,109
+.equ .m_syntax_10_10_len,.-.m_syntax_10_10
+.m_syntax_10_11: .byte 27,91,51,48,109
+.equ .m_syntax_10_11_len,.-.m_syntax_10_11
+.m_syntax_11_0: .byte 27,91,51,56,59,50,59,53,55,59,49,53,56,59,50,51,48,109
+.equ .m_syntax_11_0_len,.-.m_syntax_11_0
+.m_syntax_11_1: .byte 27,91,51,56,59,50,59,50,52,48,59,49,49,51,59,49,49,51,109
+.equ .m_syntax_11_1_len,.-.m_syntax_11_1
+.m_syntax_11_2: .byte 27,91,51,56,59,50,59,56,53,59,49,56,48,59,50,49,50,109
+.equ .m_syntax_11_2_len,.-.m_syntax_11_2
+.m_syntax_11_3: .byte 27,91,51,56,59,50,59,50,52,50,59,49,55,52,59,55,51,109
+.equ .m_syntax_11_3_len,.-.m_syntax_11_3
+.m_syntax_11_4: .byte 27,91,51,56,59,50,59,56,53,59,49,56,48,59,50,49,50,109
+.equ .m_syntax_11_4_len,.-.m_syntax_11_4
+.m_syntax_11_5: .byte 27,91,51,56,59,50,59,53,55,59,49,53,56,59,50,51,48,109
+.equ .m_syntax_11_5_len,.-.m_syntax_11_5
+.m_syntax_11_6: .byte 27,91,51,56,59,50,59,50,52,50,59,49,55,52,59,55,51,109
+.equ .m_syntax_11_6_len,.-.m_syntax_11_6
+.m_syntax_11_7: .byte 27,91,51,56,59,50,59,55,54,59,49,57,49,59,49,53,51,109
+.equ .m_syntax_11_7_len,.-.m_syntax_11_7
+.m_syntax_11_8: .byte 27,91,51,56,59,50,59,50,52,48,59,49,49,51,59,49,49,51,109
+.equ .m_syntax_11_8_len,.-.m_syntax_11_8
+.m_syntax_11_9: .byte 27,91,51,56,59,50,59,57,50,59,57,55,59,49,48,50,109
+.equ .m_syntax_11_9_len,.-.m_syntax_11_9
+.m_syntax_11_10: .byte 27,91,51,56,59,50,59,56,53,59,49,56,48,59,50,49,50,109
+.equ .m_syntax_11_10_len,.-.m_syntax_11_10
+.m_syntax_11_11: .byte 27,91,51,56,59,50,59,57,50,59,57,55,59,49,48,50,109
+.equ .m_syntax_11_11_len,.-.m_syntax_11_11
+.m_syntax_12_0: .byte 27,91,51,56,59,50,59,50,50,49,59,55,54,59,55,54,109
+.equ .m_syntax_12_0_len,.-.m_syntax_12_0
+.m_syntax_12_1: .byte 27,91,51,56,59,50,59,53,57,59,49,51,48,59,50,52,54,109
+.equ .m_syntax_12_1_len,.-.m_syntax_12_1
+.m_syntax_12_2: .byte 27,91,51,56,59,50,59,50,50,49,59,55,54,59,55,54,109
+.equ .m_syntax_12_2_len,.-.m_syntax_12_2
+.m_syntax_12_3: .byte 27,91,51,56,59,50,59,50,50,49,59,55,54,59,55,54,109
+.equ .m_syntax_12_3_len,.-.m_syntax_12_3
+.m_syntax_12_4: .byte 27,91,51,56,59,50,59,53,57,59,49,51,48,59,50,52,54,109
+.equ .m_syntax_12_4_len,.-.m_syntax_12_4
+.m_syntax_12_5: .byte 27,91,51,56,59,50,59,53,57,59,49,51,48,59,50,52,54,109
+.equ .m_syntax_12_5_len,.-.m_syntax_12_5
+.m_syntax_12_6: .byte 27,91,51,56,59,50,59,54,59,49,56,50,59,50,49,50,109
+.equ .m_syntax_12_6_len,.-.m_syntax_12_6
+.m_syntax_12_7: .byte 27,91,51,57,109
+.equ .m_syntax_12_7_len,.-.m_syntax_12_7
+.m_syntax_12_8: .byte 27,91,51,56,59,50,59,54,59,49,56,50,59,50,49,50,109
+.equ .m_syntax_12_8_len,.-.m_syntax_12_8
+.m_syntax_12_9: .byte 27,91,51,57,109
+.equ .m_syntax_12_9_len,.-.m_syntax_12_9
+.m_syntax_12_10: .byte 27,91,51,57,109
+.equ .m_syntax_12_10_len,.-.m_syntax_12_10
+.m_syntax_12_11: .byte 27,91,51,57,109
+.equ .m_syntax_12_11_len,.-.m_syntax_12_11
+.m_syntax_13_0: .byte 27,91,51,56,59,50,59,49,48,50,59,48,59,49,48,50,109
+.equ .m_syntax_13_0_len,.-.m_syntax_13_0
+.m_syntax_13_1: .byte 27,91,51,56,59,50,59,49,48,50,59,48,59,49,48,50,109
+.equ .m_syntax_13_1_len,.-.m_syntax_13_1
+.m_syntax_13_2: .byte 27,91,51,56,59,50,59,49,48,50,59,48,59,49,48,50,109
+.equ .m_syntax_13_2_len,.-.m_syntax_13_2
+.m_syntax_13_3: .byte 27,91,51,56,59,50,59,54,56,59,54,56,59,54,56,109
+.equ .m_syntax_13_3_len,.-.m_syntax_13_3
+.m_syntax_13_4: .byte 27,91,51,56,59,50,59,54,56,59,54,56,59,54,56,109
+.equ .m_syntax_13_4_len,.-.m_syntax_13_4
+.m_syntax_13_5: .byte 27,91,51,56,59,50,59,48,59,48,59,49,51,54,109
+.equ .m_syntax_13_5_len,.-.m_syntax_13_5
+.m_syntax_13_6: .byte 27,91,51,56,59,50,59,48,59,49,48,50,59,49,48,50,109
+.equ .m_syntax_13_6_len,.-.m_syntax_13_6
+.m_syntax_13_7: .byte 27,91,51,56,59,50,59,48,59,49,51,54,59,48,109
+.equ .m_syntax_13_7_len,.-.m_syntax_13_7
+.m_syntax_13_8: .byte 27,91,51,56,59,50,59,48,59,49,48,50,59,49,48,50,109
+.equ .m_syntax_13_8_len,.-.m_syntax_13_8
+.m_syntax_13_9: .byte 27,91,51,56,59,50,59,49,48,50,59,49,48,50,59,48,109
+.equ .m_syntax_13_9_len,.-.m_syntax_13_9
+.m_syntax_13_10: .byte 27,91,51,56,59,50,59,49,48,50,59,49,48,50,59,48,109
+.equ .m_syntax_13_10_len,.-.m_syntax_13_10
+.m_syntax_13_11: .byte 27,91,51,56,59,50,59,49,48,50,59,48,59,49,48,50,109
+.equ .m_syntax_13_11_len,.-.m_syntax_13_11
+.m_syntax_14_0: .byte 27,91,51,56,59,50,59,50,56,59,48,59,50,48,55,109
+.equ .m_syntax_14_0_len,.-.m_syntax_14_0
+.m_syntax_14_1: .byte 27,91,51,56,59,50,59,49,55,48,59,49,51,59,49,52,53,109
+.equ .m_syntax_14_1_len,.-.m_syntax_14_1
+.m_syntax_14_2: .byte 27,91,51,56,59,50,59,49,55,48,59,49,51,59,49,52,53,109
+.equ .m_syntax_14_2_len,.-.m_syntax_14_2
+.m_syntax_14_3: .byte 27,91,51,56,59,50,59,49,55,48,59,49,51,59,49,52,53,109
+.equ .m_syntax_14_3_len,.-.m_syntax_14_3
+.m_syntax_14_4: .byte 27,91,51,56,59,50,59,49,55,48,59,49,51,59,49,52,53,109
+.equ .m_syntax_14_4_len,.-.m_syntax_14_4
+.m_syntax_14_5: .byte 27,91,51,56,59,50,59,49,55,48,59,49,51,59,49,52,53,109
+.equ .m_syntax_14_5_len,.-.m_syntax_14_5
+.m_syntax_14_6: .byte 27,91,51,56,59,50,59,49,51,49,59,49,48,56,59,52,48,109
+.equ .m_syntax_14_6_len,.-.m_syntax_14_6
+.m_syntax_14_7: .byte 27,91,51,56,59,50,59,49,52,59,49,52,59,50,53,53,109
+.equ .m_syntax_14_7_len,.-.m_syntax_14_7
+.m_syntax_14_8: .byte 27,91,51,56,59,50,59,50,56,59,48,59,50,48,55,109
+.equ .m_syntax_14_8_len,.-.m_syntax_14_8
+.m_syntax_14_9: .byte 27,91,51,56,59,50,59,54,51,59,49,49,48,59,49,49,54,109
+.equ .m_syntax_14_9_len,.-.m_syntax_14_9
+.m_syntax_14_10: .byte 27,91,51,56,59,50,59,54,51,59,49,49,48,59,49,49,54,109
+.equ .m_syntax_14_10_len,.-.m_syntax_14_10
+.m_syntax_14_11: .byte 27,91,51,56,59,50,59,49,55,48,59,49,51,59,49,52,53,109
+.equ .m_syntax_14_11_len,.-.m_syntax_14_11
+.m_syntax_15_0: .byte 27,91,51,56,59,50,59,50,53,53,59,50,49,53,59,48,109
+.equ .m_syntax_15_0_len,.-.m_syntax_15_0
+.m_syntax_15_1: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_15_1_len,.-.m_syntax_15_1
+.m_syntax_15_2: .byte 27,91,51,56,59,50,59,53,55,59,49,56,54,59,50,51,48,109
+.equ .m_syntax_15_2_len,.-.m_syntax_15_2
+.m_syntax_15_3: .byte 27,91,51,56,59,50,59,50,53,53,59,50,49,53,59,48,109
+.equ .m_syntax_15_3_len,.-.m_syntax_15_3
+.m_syntax_15_4: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_15_4_len,.-.m_syntax_15_4
+.m_syntax_15_5: .byte 27,91,51,56,59,50,59,56,57,59,49,57,52,59,50,53,53,109
+.equ .m_syntax_15_5_len,.-.m_syntax_15_5
+.m_syntax_15_6: .byte 27,91,51,56,59,50,59,50,53,53,59,50,49,53,59,48,109
+.equ .m_syntax_15_6_len,.-.m_syntax_15_6
+.m_syntax_15_7: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_15_7_len,.-.m_syntax_15_7
+.m_syntax_15_8: .byte 27,91,51,56,59,50,59,49,52,57,59,50,51,48,59,50,48,51,109
+.equ .m_syntax_15_8_len,.-.m_syntax_15_8
+.m_syntax_15_9: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_15_9_len,.-.m_syntax_15_9
+.m_syntax_15_10: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_15_10_len,.-.m_syntax_15_10
+.m_syntax_15_11: .byte 27,91,51,56,59,50,59,49,57,49,59,49,56,57,59,49,56,50,109
+.equ .m_syntax_15_11_len,.-.m_syntax_15_11
+.m_syntax_16_0: .byte 27,91,51,57,109
+.equ .m_syntax_16_0_len,.-.m_syntax_16_0
+.m_syntax_16_1: .byte 27,91,51,57,109
+.equ .m_syntax_16_1_len,.-.m_syntax_16_1
+.m_syntax_16_2: .byte 27,91,51,57,109
+.equ .m_syntax_16_2_len,.-.m_syntax_16_2
+.m_syntax_16_3: .byte 27,91,51,57,109
+.equ .m_syntax_16_3_len,.-.m_syntax_16_3
+.m_syntax_16_4: .byte 27,91,51,57,109
+.equ .m_syntax_16_4_len,.-.m_syntax_16_4
+.m_syntax_16_5: .byte 27,91,51,57,109
+.equ .m_syntax_16_5_len,.-.m_syntax_16_5
+.m_syntax_16_6: .byte 27,91,51,57,109
+.equ .m_syntax_16_6_len,.-.m_syntax_16_6
+.m_syntax_16_7: .byte 27,91,51,57,109
+.equ .m_syntax_16_7_len,.-.m_syntax_16_7
+.m_syntax_16_8: .byte 27,91,51,57,109
+.equ .m_syntax_16_8_len,.-.m_syntax_16_8
+.m_syntax_16_9: .byte 27,91,51,57,109
+.equ .m_syntax_16_9_len,.-.m_syntax_16_9
+.m_syntax_16_10: .byte 27,91,51,57,109
+.equ .m_syntax_16_10_len,.-.m_syntax_16_10
+.m_syntax_16_11: .byte 27,91,51,57,109
+.equ .m_syntax_16_11_len,.-.m_syntax_16_11

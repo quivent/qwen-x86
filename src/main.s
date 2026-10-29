@@ -232,9 +232,17 @@ _start:
     mov edi,eax
     jmp app_exit
 .L_client_init:
+    call app_native_preferences_init
+    cmp qword ptr [rip+app_yes],0
+    je .L_initial_approval_mode_ready
+    mov edi,3
+    call ui_set_approval_mode
+.L_initial_approval_mode_ready:
     lea rdi,[rip+app_child_entry]
     mov esi,3
     call agents_init
+    lea rdi,[rip+app_parent_approve]
+    call agents_set_approval
     lea rdi,[rip+app_approve]
     xor esi,esi
     mov rdx,[rip+app_envp]
@@ -297,11 +305,23 @@ _start:
     mov ecx,7
     repe cmpsb
     je .L_auth_ok
+    cmp qword ptr [rip+app_disconnected],0
+    jne .L_missing_auth
     mov rdi,[rip+app_envp]
     lea rsi,[rip+env_home]
     call qx_env_get
     test rax,rax
     jz .L_missing_auth
+    cmp qword ptr [rip+app_auth_type_explicit],0
+    je .L_auth_can_reuse_oauth
+    mov r12,rax
+    mov rdi,[rip+app_protocol]
+    lea rsi,[rip+ui_protocol_oauth]
+    call qx_streq
+    test eax,eax
+    jz .L_missing_auth
+    mov rax,r12
+.L_auth_can_reuse_oauth:
     mov rdi,rax
     call oauth_load
     test rax,rax
@@ -310,6 +330,14 @@ _start:
     call app_oauth_config
     jmp .L_auth_ok
 .L_missing_auth:
+    cmp qword ptr [rip+app_prompt],0
+    jne .L_missing_auth_fatal
+    call term_init
+    test rax,rax
+    jne .L_missing_auth_fatal
+    mov qword ptr [rip+app_needs_auth],1
+    jmp .L_auth_ok
+.L_missing_auth_fatal:
     lea rdi,[rip+missing_key]
     jmp app_fatal
 .L_oauth_error:
@@ -332,6 +360,11 @@ _start:
     mov rdi,[rip+app_model]
     lea rsi,[rip+app_cwd]
     lea rdx,[rip+ui_auth_key]
+    cmp qword ptr [rip+app_needs_auth],0
+    je .L_ui_auth_configured
+    lea rdx,[rip+ui_auth_unconfigured]
+    jmp .L_ui_auth_ready
+.L_ui_auth_configured:
     cmp qword ptr [rip+app_oauth],0
     je .L_ui_auth_ready
     lea rdx,[rip+ui_auth_oauth]
@@ -340,6 +373,8 @@ _start:
     test rax,rax
     js .L_plain_banner
     mov qword ptr [rip+app_ui_active],1
+    lea rdi,[rip+agents_service_approvals]
+    call ui_set_activity_hook
     call app_ui_preferences_init
     mov rdi,[rip+app_envp]
     call ui_detect_theme
@@ -390,6 +425,12 @@ _start:
     xor esi,esi
 .L_approval_policy_ready:
     call tools_set_approval
+    cmp qword ptr [rip+app_needs_auth],0
+    je .L_startup_auth_ready
+    cmp qword ptr [rip+app_ui_active],0
+    je .L_startup_auth_ready
+    call app_auth_manage
+.L_startup_auth_ready:
     cmp qword ptr [rip+app_prompt],0
     je .L_interactive_loop
     mov rdi,[rip+app_prompt]
@@ -647,6 +688,30 @@ FUNC app_oauth_config
 FUNC app_build_url
     mov qword ptr [rip+url_builder+16],0
     mov r12,[rip+app_base]
+    mov rdi,[rip+app_protocol]
+    lea rsi,[rip+ui_protocol_gemini]
+    call qx_streq
+    test eax,eax
+    jnz .L_url_gemini
+    lea r14,[rip+endpoint]
+    mov r15d,OFFSET FLAT:endpoint_len
+    mov rdi,[rip+app_protocol]
+    lea rsi,[rip+ui_protocol_responses]
+    call qx_streq
+    test eax,eax
+    jz .L_url_not_responses
+    lea r14,[rip+endpoint_responses]
+    mov r15d,OFFSET FLAT:endpoint_responses_len
+    jmp .L_url_endpoint_ready
+.L_url_not_responses:
+    mov rdi,[rip+app_protocol]
+    lea rsi,[rip+ui_protocol_anthropic]
+    call qx_streq
+    test eax,eax
+    jz .L_url_endpoint_ready
+    lea r14,[rip+endpoint_anthropic]
+    mov r15d,OFFSET FLAT:endpoint_anthropic_len
+.L_url_endpoint_ready:
     mov rdi,r12
     call qx_strlen
     cmp rax,1900
@@ -666,20 +731,117 @@ FUNC app_build_url
     call qx_cat
     lea rdx,[rip+app_url]
     mov byte ptr [rdx+r13],0
-    cmp r13,OFFSET FLAT:endpoint_len
+    cmp r13,r15
     jb .L_url_suffix
-    lea rdi,[rdx+r13-endpoint_len]
-    lea rsi,[rip+endpoint]
+    lea rdi,[rdx+r13]
+    sub rdi,r15
+    mov rsi,r14
     call qx_streq
     test eax,eax
     jnz .L_url_zero
 .L_url_suffix:
-    CAT url_builder,endpoint
+    lea rdi,[rip+url_builder]
+    mov rsi,r14
+    mov rdx,r15
+    call qx_cat
+    test rax,rax
+    js app_capacity_error
 .L_url_zero:
     mov rax,[rip+url_builder+16]
     lea rdx,[rip+app_url]
     mov byte ptr [rdx+rax],0
     END
+.L_url_gemini:
+    mov rdi,r12
+    call qx_strlen
+    mov r13,rax
+.L_url_gemini_trim:
+    test r13,r13
+    jz app_capacity_error
+    cmp byte ptr [r12+r13-1],'/'
+    jne .L_url_gemini_version
+    dec r13
+    jmp .L_url_gemini_trim
+.L_url_gemini_version:
+    cmp r13,7
+    jb .L_url_gemini_v1
+    lea rdi,[r12+r13-7]
+    lea rsi,[rip+ui_gemini_version]
+    call qx_streq
+    test eax,eax
+    jz .L_url_gemini_v1
+    sub r13,7
+    jmp .L_url_gemini_base
+.L_url_gemini_v1:
+    cmp r13,3
+    jb .L_url_gemini_base
+    lea rdi,[r12+r13-3]
+    lea rsi,[rip+ui_v1_version]
+    call qx_streq
+    test eax,eax
+    jz .L_url_gemini_base
+    sub r13,3
+.L_url_gemini_base:
+    lea rdi,[rip+url_builder]
+    mov rsi,r12
+    mov rdx,r13
+    call qx_cat
+    test rax,rax
+    js app_capacity_error
+    CAT url_builder,endpoint_gemini
+    mov r14,[rip+app_model]
+    mov rdi,r14
+    lea rsi,[rip+ui_models_prefix]
+    call app_prefix
+    test rax,rax
+    cmovnz r14,rax
+    xor r15d,r15d
+.L_url_gemini_model:
+    movzx eax,byte ptr [r14+r15]
+    test eax,eax
+    jz .L_url_gemini_end
+    mov byte ptr [rip+ui_uri_triplet],al
+    lea rsi,[rip+ui_uri_triplet]
+    mov edx,1
+    cmp al,'-'
+    je .L_url_gemini_char
+    cmp al,'_'
+    je .L_url_gemini_char
+    cmp al,'.'
+    je .L_url_gemini_char
+    cmp al,'~'
+    je .L_url_gemini_char
+    cmp al,'/'
+    je .L_url_gemini_char
+    mov ecx,eax
+    sub ecx,'0'
+    cmp ecx,9
+    jbe .L_url_gemini_char
+    mov ecx,eax
+    or ecx,32
+    sub ecx,'a'
+    cmp ecx,25
+    jbe .L_url_gemini_char
+    mov byte ptr [rsi],'%'
+    mov ecx,eax
+    shr ecx,4
+    and eax,15
+    lea rdx,[rip+ui_uri_hex]
+    mov cl,[rdx+rcx]
+    mov [rsi+1],cl
+    mov al,[rdx+rax]
+    mov [rsi+2],al
+    mov edx,3
+.L_url_gemini_char:
+    lea rdi,[rip+url_builder]
+    call qx_cat
+    test rax,rax
+    js app_capacity_error
+    inc r15
+    jmp .L_url_gemini_model
+.L_url_gemini_end:
+    CAT url_builder,endpoint_gemini_end
+    jmp .L_url_zero
 FUNC app_load_rules
     lea rdi,[rip+system_prompt]
     call qx_strlen
@@ -800,14 +962,36 @@ FUNC app_request
     CAT request_builder,array_end
     jmp .L_request_tools_done
 .L_request_worker_tools:
+    cmp qword ptr [rip+app_worker_policy],1
+    je .L_request_inherited_tools
     lea rdi,[rip+request_builder]
     lea rsi,[rip+readonly_definitions]
     mov edx,OFFSET FLAT:readonly_definitions_len
     call qx_cat
     test rax,rax
     js app_capacity_error
+    jmp .L_request_tools_done
+.L_request_inherited_tools:
+    lea rdi,[rip+request_builder]
+    lea rsi,[rip+worker_definitions]
+    mov edx,OFFSET FLAT:worker_definitions_len
+    call qx_cat
+    test rax,rax
+    js app_capacity_error
 .L_request_tools_done:
     CAT request_builder,request_end
+    mov rdi,[rip+app_protocol]
+    lea rsi,[rip+request_buffer]
+    mov rdx,[rip+request_builder+16]
+    lea rcx,[rip+provider_request_buffer]
+    mov r8d,REQUEST_CAP
+    call provider_translate_request
+    test rax,rax
+    js .L_provider_request_failed
+    mov [rip+provider_request_length],rax
+    END
+.L_provider_request_failed:
+    mov qword ptr [rip+provider_request_length],0
     END
 FUNC app_feed
     mov r12,rdi
@@ -817,7 +1001,20 @@ FUNC app_feed
     jne .L_feed_ignore
     mov rdi,r12
     mov rsi,r13
+    mov rdx,rsi
+    mov rsi,rdi
+    mov rdi,[rip+app_protocol]
+    lea rcx,[rip+provider_stream_buffer]
+    mov r8d,REQUEST_CAP
+    call provider_translate_stream
+    test rax,rax
+    js .L_feed_provider_failed
+    mov rsi,rax
+    lea rdi,[rip+provider_stream_buffer]
     call stream_feed
+    END
+.L_feed_provider_failed:
+    mov rax,-1
     END
 .L_feed_ignore:
     mov rcx,16385
@@ -916,12 +1113,31 @@ FUNC app_turn
     lea rax,[rip+expanded_prompt]
     mov [rip+app_input],rax
 .L_prompt_unexpanded:
+    mov rdi,[rip+app_input]
+    mov rsi,[rip+app_input_len]
+    lea rdx,[rip+ui_attachment_json]
+    mov ecx,HISTORY_CAP-256
+    call ui_attachment_content
+    test rax,rax
+    js .L_attachment_failed
+    mov [rip+ui_attachment_length],rax
     mov qword ptr [rip+net_cancelled],0
     call history_separator
     CAT history_builder,user_begin
     mov r12,[rip+app_input]
     mov r13,[rip+app_input_len]
+    cmp qword ptr [rip+ui_attachment_length],0
+    jne .L_attachment_history
     QUOTE history_builder,r12,r13
+    jmp .L_attachment_history_done
+.L_attachment_history:
+    lea rdi,[rip+history_builder]
+    lea rsi,[rip+ui_attachment_json]
+    mov rdx,[rip+ui_attachment_length]
+    call qx_cat
+    test rax,rax
+    js app_capacity_error
+.L_attachment_history_done:
     CAT history_builder,message_end
     call app_save_session
     xor r15d,r15d
@@ -953,11 +1169,29 @@ FUNC app_turn
     js .L_round_oauth_error
     call app_oauth_config
 .L_round_auth_ready:
+    mov rdi,[rip+app_protocol]
+    call provider_stream_reset
+    test rax,rax
+    js .L_round_provider_error
+    xor edi,edi
+    mov rsi,[rip+app_protocol]
+    cmp byte ptr [rsi],'g'
+    jne .L_round_not_gemini_header
+    mov edi,2
+    jmp .L_round_header_ready
+.L_round_not_gemini_header:
+    cmp byte ptr [rsi],'a'
+    jne .L_round_header_ready
+    mov edi,1
+.L_round_header_ready:
+    call http_set_auth_mode
     call app_request
+    cmp qword ptr [rip+provider_request_length],0
+    je .L_round_provider_error
     lea rdi,[rip+app_url]
     mov rsi,[rip+app_key]
-    lea rdx,[rip+request_buffer]
-    mov rcx,[rip+request_builder+16]
+    lea rdx,[rip+provider_request_buffer]
+    mov rcx,[rip+provider_request_length]
     lea r8,[rip+app_feed]
     call http_request
     cmp rax,200
@@ -978,6 +1212,21 @@ FUNC app_turn
     mov r12,rax
     mov r13,rdx
     QUOTE history_builder,r12,r13
+    lea rdi,[rip+provider_metadata_buffer]
+    mov esi,MAX_JSON
+    call provider_stream_metadata
+    test rax,rax
+    js .L_round_stream_error
+    jz .L_assistant_metadata_done
+    mov r14,rax
+    CAT history_builder,provider_metadata_heading
+    lea rdi,[rip+history_builder]
+    lea rsi,[rip+provider_metadata_buffer]
+    mov rdx,r14
+    call qx_cat
+    test rax,rax
+    js app_capacity_error
+.L_assistant_metadata_done:
     call stream_calls
     mov r12,rax
     mov r13,rdx
@@ -1021,6 +1270,10 @@ FUNC app_turn
     jne .L_execute_cancelled
     lea rax,[r12+CALL_NAME]
     mov [rip+app_current_tool],rax
+    lea rax,[r12+CALL_ARGS]
+    mov [rip+app_current_args],rax
+    mov rax,[r12+CALL_ARGLEN]
+    mov [rip+app_current_arglen],rax
     cmp qword ptr [rip+app_ui_active],0
     je .L_tool_plain_status
     lea rdi,[r12+CALL_NAME]
@@ -1033,7 +1286,7 @@ FUNC app_turn
     call ui_tool_begin
     jmp .L_tool_status_done
 .L_tool_plain_status:
-    mov rdi,rax
+    lea rdi,[r12+CALL_NAME]
     call app_status
 .L_tool_status_done:
     lea rdi,[r12+CALL_NAME]
@@ -1170,6 +1423,17 @@ FUNC app_turn
     mov rdi,rax
     call app_error
     jmp .L_round_error_return
+.L_round_provider_error:
+    call provider_stream_error
+    mov rdi,rax
+    call app_error
+    jmp .L_round_error_return
+.L_attachment_failed:
+    call ui_attachment_error
+    mov rdi,rax
+    call app_error
+    mov eax,1
+    END
 .L_round_limit:
     lea rdi,[rip+round_failed]
     call app_error
@@ -1186,6 +1450,9 @@ FUNC app_turn
 app_child_entry:
     and rsp,-16
     mov qword ptr [rip+app_worker],1
+    mov [rip+app_worker_policy],rcx
+    mov [rip+app_agent_type],r8
+    mov [rip+app_agent_resume],rsi
     mov qword ptr [rip+app_interactive],0
     mov qword ptr [rip+app_ui_active],0
     mov qword ptr [rip+app_yes],0
@@ -1202,7 +1469,7 @@ app_child_entry:
     call net_set_interactive
     xor edi,edi
     call net_set_ui_hook
-    xor edi,edi
+    lea rdi,[rip+app_approve]
     xor esi,esi
     call tools_set_approval
     test r12,r12
@@ -1228,14 +1495,273 @@ app_child_entry:
     mov edi,1
     lea rsi,[rip+newline_z]
     call qx_printz
+    cmp qword ptr [rip+app_worker_policy],0
+    jne .L_child_policy_ready
     CAT system_builder,readonly_role
+.L_child_policy_ready:
+    call app_child_external
+    test rax,rax
+    js .L_child_error
+    jz .L_child_native_executor
+    xor edi,edi
+    jmp app_exit
+.L_child_native_executor:
+    call app_child_named_prompt
+    test rax,rax
+    js .L_child_error
     call app_turn
     mov edi,eax
     jmp app_exit
 .L_child_error:
     mov edi,1
     jmp app_exit
+FUNC app_child_external
+    mov r12,[rip+app_agent_type]
+    test r12,r12
+    jz .L_external_not_selected
+    cmp byte ptr [r12],0
+    je .L_external_not_selected
+    mov rdi,r12
+    call ui_agent_builtin_policy
+    cmp rax,-3
+    je .L_external_selected
+    cmp rax,-4
+    jne .L_external_not_selected
+.L_external_selected:
+    mov rdi,r12
+    mov rsi,[rip+app_envp]
+    call agent_executor_available
+    test rax,rax
+    jz .L_external_unavailable
+    xor edi,edi
+    call agent_executor_set_session
+    mov rdi,[rip+app_agent_resume]
+    test rdi,rdi
+    jz .L_external_resume_ready
+    cmp byte ptr [rdi],0
+    je .L_external_resume_ready
+    lea rsi,[rip+app_cwd]
+    call agent_executor_load_session
+    test rax,rax
+    js .L_external_return
+.L_external_resume_ready:
+    call ui_get_approval_mode
+    mov rdi,rax
+    call agent_executor_set_mode
+    lea rdi,[rip+net_check_cancel]
+    call agent_executor_set_cancel
+    lea rdi,[rip+agents_request_approval]
+    call agent_executor_set_approval
+    mov rdi,r12
+    mov rsi,[rip+app_prompt]
+    lea rdx,[rip+app_cwd]
+    mov rcx,[rip+app_envp]
+    lea r8,[rip+ui_agent_report]
+    mov r9d,65536
+    call agent_executor_execute
+    test rax,rax
+    js .L_external_return
+    mov r13,rax
+    call history_separator
+    CAT history_builder,user_begin
+    mov r14,[rip+app_prompt]
+    mov rdi,r14
+    call qx_strlen
+    QUOTE history_builder,r14,rax
+    CAT history_builder,message_end
+    call history_separator
+    CAT history_builder,assistant_begin
+    lea r14,[rip+ui_agent_report]
+    QUOTE history_builder,r14,r13
+    CAT history_builder,message_end
+    call app_save_session
+    mov rdi,[rip+app_agent_type]
+    call ui_agent_builtin_policy
+    cmp rax,-4
+    je .L_external_session_saved
+    lea rdi,[rip+session_path]
+    mov esi,1
+    sub rsi,[rip+app_no_save]
+    call agent_executor_save_session
+    test rax,rax
+    js .L_external_return
+.L_external_session_saved:
+    mov edi,1
+    lea rsi,[rip+ui_agent_report]
+    mov rdx,r13
+    call qx_write_all
+    test rax,rax
+    js .L_external_return
+    mov eax,1
+    jmp .L_external_return
+.L_external_unavailable:
+    mov edi,1
+    lea rsi,[rip+ui_external_agent_missing]
+    call qx_printz
+    mov rax,-2
+    jmp .L_external_return
+.L_external_not_selected:
+    xor eax,eax
+.L_external_return:
+    END
+FUNC app_child_named_prompt
+    mov r12,[rip+app_agent_type]
+    test r12,r12
+    jz .L_child_named_none
+    cmp byte ptr [r12],0
+    je .L_child_named_none
+    mov rdi,r12
+    lea rsi,[rip+ui_named_prompt]
+    mov edx,65535
+    call ui_agent_builtin_prompt
+    test rax,rax
+    jns .L_child_named_append
+    mov rdi,r12
+    lea rsi,[rip+ui_named_prompt]
+    mov edx,65535
+    call ui_agent_prompt
+    test rax,rax
+    js .L_child_named_return
+.L_child_named_append:
+    mov r13,rax
+    CAT system_builder,ui_named_prompt_heading
+    lea rdi,[rip+system_builder]
+    lea rsi,[rip+ui_named_prompt]
+    mov rdx,r13
+    call qx_cat
+    test rax,rax
+    js .L_child_named_return
+    CAT system_builder,ui_named_tool_mapping
+.L_child_named_none:
+    xor eax,eax
+.L_child_named_return:
+    END
 # UI-only callbacks bind application state without exposing backend internals.
+FUNC app_native_preferences_init
+    mov rdi,[rip+app_envp]
+    lea rsi,[rip+env_home]
+    call qx_env_get
+    test rax,rax
+    jz .L_native_preferences_done
+    mov r12,rax
+    mov rdi,rax
+    lea rsi,[rip+app_cwd]
+    mov edx,1
+    sub rdx,[rip+app_no_save]
+    call ui_preferences_config
+    test rax,rax
+    js .L_native_preferences_done
+    mov rdi,r12
+    lea rsi,[rip+app_cwd]
+    mov edx,1
+    sub rdx,[rip+app_no_save]
+    call ui_management_config
+    lea rdi,[rip+net_check_cancel]
+    call ui_management_set_cancel
+    mov rdi,r12
+    lea rsi,[rip+app_cwd]
+    mov edx,1
+    sub rdx,[rip+app_no_save]
+    call ui_shell_permission_config
+    cmp qword ptr [rip+app_model_explicit],0
+    jne .L_saved_model_done
+    call ui_preferences_get_model
+    test rax,rax
+    jz .L_saved_model_done
+    mov [rip+app_model],rax
+    mov qword ptr [rip+app_model_explicit],1
+.L_saved_model_done:
+    cmp qword ptr [rip+app_base_explicit],0
+    jne .L_saved_base_done
+    call ui_preferences_get_base_url
+    test rax,rax
+    jz .L_saved_base_done
+    mov [rip+app_base],rax
+    mov qword ptr [rip+app_base_explicit],1
+.L_saved_base_done:
+    call ui_preferences_get_auth_type
+    test rax,rax
+    jz .L_saved_protocol_ready
+    mov [rip+app_protocol],rax
+    mov qword ptr [rip+app_auth_type_explicit],1
+.L_saved_protocol_ready:
+    mov rdi,[rip+app_key]
+    cmp byte ptr [rdi],0
+    jne .L_saved_key_done
+    call ui_preferences_get_key_source
+    test rax,rax
+    jz .L_saved_key_environment
+    mov r14,rax
+    mov rdi,rax
+    lea rsi,[rip+ui_key_source_none]
+    call qx_streq
+    test eax,eax
+    jz .L_saved_key_not_disconnected
+    mov qword ptr [rip+app_disconnected],1
+    jmp .L_saved_key_done
+.L_saved_key_not_disconnected:
+    mov rdi,r14
+    lea rsi,[rip+ui_key_source_stored]
+    call qx_streq
+    test eax,eax
+    jz .L_saved_key_environment
+    mov rdi,[rip+app_protocol]
+    mov rsi,[rip+app_base]
+    call ui_preferences_get_api_key_for
+    test rax,rax
+    jz .L_saved_key_done
+    mov [rip+app_key],rax
+    jmp .L_saved_key_done
+.L_saved_key_environment:
+    call ui_preferences_get_api_key_env
+    test rax,rax
+    jz .L_saved_key_done
+    mov rsi,rax
+    mov rdi,[rip+app_envp]
+    call qx_env_get
+    test rax,rax
+    jz .L_saved_key_done
+    mov [rip+app_key],rax
+.L_saved_key_done:
+    call ui_custom_themes_reset
+    call ui_provider_models_reset
+    xor r12d,r12d
+.L_custom_scope:
+    mov r13d,1
+.L_custom_source:
+    mov rdi,r12
+    mov rsi,r13
+    lea rdx,[rip+ui_settings_json]
+    mov ecx,65536
+    call ui_preferences_read_settings
+    test rax,rax
+    js .L_custom_next
+    mov rsi,rax
+    lea rdi,[rip+ui_settings_json]
+    mov r14,rax
+    call ui_custom_themes_load
+    mov rsi,r14
+    lea rdi,[rip+ui_settings_json]
+    call ui_provider_models_load
+.L_custom_next:
+    dec r13
+    jns .L_custom_source
+    inc r12
+    cmp r12,2
+    jb .L_custom_scope
+    lea rdi,[rip+ui_custom_theme_catalog]
+    lea rsi,[rip+ui_custom_theme_name]
+    lea rdx,[rip+ui_custom_theme_find]
+    lea rcx,[rip+ui_custom_theme_palette]
+    call ui_set_custom_theme_hooks
+    lea rdi,[rip+ui_custom_theme_gradient]
+    call ui_set_custom_gradient_hook
+    lea rdi,[rip+ui_custom_theme_palette]
+    call ui_markdown_set_theme_reader
+    lea rdi,[rip+ui_custom_theme_palette]
+    call ui_mermaid_set_theme_reader
+.L_native_preferences_done:
+    END
 app_ui_external_editor:
     mov r8,[rip+app_envp]
     jmp ui_external_edit
@@ -1256,18 +1782,16 @@ FUNC app_ui_shell
     mov rdi,[rip+app_input]
     mov rsi,[rip+app_input_len]
     call ui_shell_begin
-    xor edi,edi
-    mov esi,1
-    call tools_set_approval
+    call ui_suspend
     mov rdi,[rip+app_input]
     mov rsi,[rip+app_input_len]
-    lea rdx,[rip+tool_output]
-    mov ecx,65537
-    call ui_shell_execute
+    lea rdx,[rip+app_cwd]
+    mov rcx,[rip+app_envp]
+    lea r8,[rip+tool_output]
+    mov r9d,65537
+    call ui_shell_execute_pty
     mov r12,rax
-    lea rdi,[rip+app_approve]
-    xor esi,esi
-    call tools_set_approval
+    call ui_resume
     mov r13d,1
     test r12,r12
     jns .L_ui_shell_result
@@ -1278,14 +1802,22 @@ FUNC app_ui_shell
     mov r12,OFFSET FLAT:ui_shell_failure_len
     jmp .L_ui_shell_display
 .L_ui_shell_result:
-    call tools_last_error
-    mov r13,rax
+    call ui_shell_pty_status
+    xor r13d,r13d
+    test rax,rax
+    setnz r13b
 .L_ui_shell_display:
     lea rdi,[rip+tool_output]
     mov rsi,r12
     mov rdx,r13
     call ui_tool_end
     call ui_end_response
+    call ui_shell_pty_cancelled
+    test rax,rax
+    jz .L_ui_shell_not_cancelled
+    lea rdi,[rip+cancelled_status]
+    call app_status
+.L_ui_shell_not_cancelled:
     mov rdi,[rip+app_input]
     mov rsi,[rip+app_input_len]
     lea rdx,[rip+tool_output]
@@ -1386,6 +1918,16 @@ FUNC app_ui_preferences_init
     js .L_preferences_done
     call app_ui_apply_saved_theme
 .L_preferences_done:
+    mov rdi,[rip+app_envp]
+    lea rsi,[rip+env_home]
+    call qx_env_get
+    test rax,rax
+    jz .L_mutations_ready
+    mov rdi,rax
+    mov esi,1
+    sub rsi,[rip+app_no_save]
+    call ui_session_mutations_config
+.L_mutations_ready:
     END
 FUNC app_ui_apply_saved_theme
     call ui_preferences_get_theme
@@ -1400,6 +1942,14 @@ FUNC app_ui_apply_saved_theme
 .L_preferences_applied:
     END
 FUNC app_ui_choice_reset
+    xor edi,edi
+    xor esi,esi
+    xor edx,edx
+    call ui_set_choice_tabs
+    xor edi,edi
+    call ui_set_choice_footer
+    xor edi,edi
+    call ui_set_choice_multi
     xor edi,edi
     call ui_set_choice_preview_reader
     xor edi,edi
@@ -1441,8 +1991,57 @@ FUNC app_ui_model_metadata
     lea rdx,[rip+ui_model_label]
     mov byte ptr [rdx+rax],0
     END
+FUNC app_ui_model_preview
+    cmp rdi,[rip+ui_model_configured_count]
+    jae .L_model_preview_runtime
+    mov r12,rsi
+    mov qword ptr [rip+ui_model_metadata_builder+16],0
+    CAT ui_model_metadata_builder,ui_model_modality
+    mov rsi,[r12+3520]
+    test rsi,rsi
+    jz .L_model_preview_unknown_context
+    lea rdi,[rip+number_buffer]
+    call qx_uint
+    lea rsi,[rip+number_buffer]
+    mov rdx,rax
+    lea rdi,[rip+ui_model_metadata_builder]
+    call qx_cat
+    jmp .L_model_preview_base
+.L_model_preview_unknown_context:
+    CAT ui_model_metadata_builder,ui_model_unknown_context
+.L_model_preview_base:
+    CAT ui_model_metadata_builder,ui_model_base_label
+    lea rdi,[r12+704]
+    call qx_strlen
+    mov rdx,rax
+    lea rsi,[r12+704]
+    lea rdi,[rip+ui_model_metadata_builder]
+    call qx_cat
+    CAT ui_model_metadata_builder,ui_model_key_label
+    lea rdi,[r12+2752]
+    call qx_strlen
+    mov rdx,rax
+    lea rsi,[r12+2752]
+    lea rdi,[rip+ui_model_metadata_builder]
+    call qx_cat
+    mov rax,[rip+ui_model_metadata_builder+16]
+    lea rdx,[rip+ui_model_metadata]
+    mov byte ptr [rdx+rax],0
+    lea rdi,[rip+ui_model_metadata]
+    call ui_set_choice_metadata
+    END
+.L_model_preview_runtime:
+    call app_ui_model_metadata
+    lea rdi,[rip+ui_model_metadata]
+    call ui_set_choice_metadata
+    END
 FUNC app_ui_command
     mov r12,rdi
+    lea rsi,[rip+cmd_rename_prefix]
+    call app_prefix
+    test rax,rax
+    jnz .L_cmd_rename_value
+    mov rdi,r12
     lea rsi,[rip+cmd_copy_latex_prefix]
     call app_prefix
     test rax,rax
@@ -1530,6 +2129,157 @@ FUNC app_ui_command
     lea rdi,[rip+ui_help]
     call app_message
     jmp .L_cmd_handled
+.L_cmd_auth:
+    call app_auth_manage
+    jmp .L_cmd_handled
+.L_cmd_settings:
+    call app_provider_settings
+    jmp .L_cmd_handled
+.L_cmd_account:
+    call app_provider_account
+    jmp .L_cmd_handled
+.L_cmd_agents_manage:
+    mov rdi,r12
+    call qx_strlen
+    mov rsi,rax
+    mov rdi,r12
+    call ui_user
+    call app_agents_manage
+    jmp .L_cmd_handled
+.L_cmd_agents_create:
+    call app_agents_create
+    jmp .L_cmd_handled
+.L_cmd_extensions:
+    mov rdi,r12
+    call qx_strlen
+    mov rsi,rax
+    mov rdi,r12
+    call ui_user
+    call app_extensions_manage
+    jmp .L_cmd_handled
+.L_cmd_reload_plugins:
+    call app_reload_plugins
+    lea rdi,[rip+ui_plugins_reloaded]
+    call app_status
+    jmp .L_cmd_handled
+.L_cmd_rename:
+    cmp qword ptr [rip+app_ui_active],0
+    je .L_cmd_handled
+    lea rdi,[rip+ui_rename_title]
+    lea rsi,[rip+ui_rename_text]
+    mov edx,512
+    call ui_prompt_text
+    test rax,rax
+    jle .L_cmd_handled
+    lea rax,[rip+ui_rename_text]
+.L_cmd_rename_value:
+    mov r13,rax
+    mov rdi,rax
+    call qx_strlen
+    test rax,rax
+    jz .L_cmd_handled
+    mov rdx,rax
+    mov rsi,r13
+    lea rdi,[rip+session_path]
+    call ui_session_rename
+    test rax,rax
+    js .L_cmd_session_mutation_failed
+    lea rdi,[rip+ui_renamed]
+    call app_status
+    jmp .L_cmd_handled
+.L_cmd_delete:
+    cmp qword ptr [rip+app_ui_active],0
+    je .L_cmd_handled
+    mov rdi,[rip+app_envp]
+    lea rsi,[rip+env_home]
+    call qx_env_get
+    test rax,rax
+    jz .L_cmd_handled
+    mov rdi,rax
+    lea rsi,[rip+ui_session_items]
+    mov edx,64
+    call ui_session_catalog
+    test rax,rax
+    jle .L_cmd_no_sessions
+    mov r13,rax
+    xor r14d,r14d
+    xor r15d,r15d
+.L_cmd_delete_catalog:
+    cmp r14,r13
+    jae .L_cmd_delete_select
+    imul rax,r14,24
+    lea rdx,[rip+ui_session_items]
+    mov rdi,[rdx+rax+16]
+    lea rsi,[rip+session_path]
+    call qx_streq
+    test eax,eax
+    jnz .L_cmd_delete_next
+    imul rax,r14,24
+    lea rsi,[rip+ui_session_items]
+    add rsi,rax
+    imul rax,r15,24
+    lea rdi,[rip+ui_delete_items]
+    add rdi,rax
+    mov ecx,3
+    rep movsq
+    inc r15
+.L_cmd_delete_next:
+    inc r14
+    jmp .L_cmd_delete_catalog
+.L_cmd_delete_select:
+    test r15,r15
+    jz .L_cmd_no_sessions
+    mov edi,3
+    call ui_set_choice_layout
+    mov edi,1
+    call ui_set_choice_multi
+    lea rdi,[rip+ui_delete_title]
+    lea rsi,[rip+ui_delete_items]
+    mov rdx,r15
+    xor ecx,ecx
+    call ui_choose
+    mov r15,rax
+    call ui_get_choice_multi
+    mov rbx,rax
+    call app_ui_choice_reset
+    test r15,r15
+    js .L_cmd_handled
+    test rbx,rbx
+    jnz .L_cmd_delete_confirm
+    bts rbx,r15
+.L_cmd_delete_confirm:
+    lea rdi,[rip+ui_delete_confirm]
+    lea rsi,[rip+ui_delete_confirm_items]
+    mov edx,2
+    xor ecx,ecx
+    call ui_choose
+    cmp rax,1
+    jne .L_cmd_handled
+    xor r12d,r12d
+    xor r14d,r14d
+.L_cmd_delete_execute:
+    cmp r12,64
+    jae .L_cmd_delete_finished
+    bt rbx,r12
+    jnc .L_cmd_delete_execute_next
+    imul rax,r12,24
+    lea rdx,[rip+ui_delete_items]
+    mov rdi,[rdx+rax+16]
+    call ui_session_delete
+    test rax,rax
+    js .L_cmd_session_mutation_failed
+    inc r14
+.L_cmd_delete_execute_next:
+    inc r12
+    jmp .L_cmd_delete_execute
+.L_cmd_delete_finished:
+    lea rdi,[rip+ui_deleted]
+    call app_status
+    jmp .L_cmd_handled
+.L_cmd_session_mutation_failed:
+    lea rdi,[rip+ui_session_mutation_failed]
+    call app_error
+    jmp .L_cmd_handled
 .L_cmd_clear:
     call app_new_session
     jmp .L_cmd_handled
@@ -1540,29 +2290,120 @@ FUNC app_ui_command
     cmp qword ptr [rip+app_ui_active],0
     je .L_cmd_model_plain
     call app_ui_model_metadata
+    lea rdi,[rip+ui_configured_model_items]
+    mov esi,64
+    call ui_provider_model_catalog
+    test rax,rax
+    js .L_cmd_bad_value
+    mov r13,rax
+    mov [rip+ui_model_configured_count],rax
+    call app_ui_model_metadata
+    imul rax,r13,24
+    lea rdx,[rip+ui_configured_model_items]
+    lea rcx,[rip+ui_model_label]
+    mov [rdx+rax],rcx
+    lea rcx,[rip+ui_model_note]
+    mov [rdx+rax+8],rcx
+    mov rcx,[rip+app_model]
+    mov [rdx+rax+16],rcx
+    mov r14,r13
+    xor r15d,r15d
+.L_cmd_model_current_find:
+    cmp r15,r13
+    jae .L_cmd_model_catalog_ready
+    imul rax,r15,24
+    lea rdx,[rip+ui_configured_model_items]
+    mov rdi,[rdx+rax+16]
+    mov rsi,[rip+app_model]
+    call qx_streq
+    test eax,eax
+    jz .L_cmd_model_current_next
+    mov r14,r15
+    jmp .L_cmd_model_catalog_ready
+.L_cmd_model_current_next:
+    inc r15
+    jmp .L_cmd_model_current_find
+.L_cmd_model_catalog_ready:
     mov edi,1
     call ui_set_choice_layout
     lea rdi,[rip+ui_model_metadata]
     call ui_set_choice_metadata
-    lea rdx,[rip+ui_model_items]
-    lea rax,[rip+ui_model_label]
-    mov [rdx],rax
-    mov rax,[rip+app_model]
-    mov [rdx+16],rax
+    lea rdi,[rip+app_ui_model_preview]
+    call ui_set_choice_preview
     lea rdi,[rip+ui_model_title]
-    mov rsi,rdx
-    mov edx,1
-    xor ecx,ecx
+    lea rsi,[rip+ui_configured_model_items]
+    lea rdx,[r13+1]
+    mov rcx,r14
     call ui_choose
     mov r15,rax
+    xor edi,edi
+    call ui_set_choice_preview
     call app_ui_choice_reset
-    mov rax,r15
-    test rax,rax
+    test r15,r15
     js .L_cmd_handled
-    imul rax,rax,24
-    lea rdx,[rip+ui_model_items]
-    mov rax,[rdx+rax+16]
+    cmp r15,[rip+ui_model_configured_count]
+    jae .L_cmd_handled
+    imul rax,r15,24
+    lea rdx,[rip+ui_configured_model_items]
+    mov r14,[rdx+rax+16]
+    cmp qword ptr [r14+3528],0
+    je .L_cmd_protocol_missing
+    lea rdi,[r14+2752]
+    cmp byte ptr [rdi],0
+    jne .L_cmd_model_key_environment
+    lea rdi,[r14+640]
+    mov rsi,[rip+app_protocol]
+    call qx_streq
+    test eax,eax
+    jz .L_cmd_missing_provider_key
+    lea rdi,[r14+704]
+    cmp byte ptr [rdi],0
+    je .L_cmd_model_key_ready
+    mov rsi,[rip+app_base]
+    call qx_streq
+    test eax,eax
+    jz .L_cmd_missing_provider_key
+    jmp .L_cmd_model_key_ready
+.L_cmd_model_key_environment:
+    lea rdi,[r14+2752]
+    mov rsi,rdi
+    mov rdi,[rip+app_envp]
+    call qx_env_get
+    test rax,rax
+    jz .L_cmd_missing_provider_key
+    mov [rip+app_key],rax
+    lea rdi,[r14+2752]
+    xor esi,esi
+    call ui_preferences_set_api_key_env
+    lea rdi,[rip+ui_key_source_environment]
+    xor esi,esi
+    call ui_preferences_set_key_source
+.L_cmd_model_key_ready:
+    cmp byte ptr [r14+704],0
+    je .L_cmd_model_base_ready
+    lea rax,[r14+704]
+    mov [rip+app_base],rax
+    mov qword ptr [rip+app_base_explicit],1
+    mov rdi,rax
+    xor esi,esi
+    call ui_preferences_set_base_url
+.L_cmd_model_base_ready:
+    lea rax,[r14+640]
+    mov [rip+app_protocol],rax
+    mov rdi,rax
+    xor esi,esi
+    call ui_preferences_set_auth_type
+    call app_build_url
+    mov rax,r14
     jmp .L_cmd_model_value
+.L_cmd_protocol_missing:
+    lea rdi,[rip+ui_protocol_missing]
+    call app_error
+    jmp .L_cmd_handled
+.L_cmd_missing_provider_key:
+    lea rdi,[rip+ui_provider_key_missing]
+    call app_error
+    jmp .L_cmd_handled
 .L_cmd_model_plain:
     mov rdi,[rip+app_model]
     call app_status
@@ -1582,6 +2423,11 @@ FUNC app_ui_command
     lea rax,[rip+app_model_buffer]
     mov [rip+app_model],rax
     mov qword ptr [rip+app_model_explicit],1
+    mov rdi,rax
+    xor esi,esi
+    call ui_preferences_set_model
+    call app_build_url
+    mov rax,[rip+app_model]
     cmp qword ptr [rip+app_ui_active],0
     je .L_cmd_handled
     mov rdi,rax
@@ -1863,6 +2709,28 @@ FUNC app_ui_restore_history
     shl rax,5
     lea rdx,[rip+session_tokens]
     add rdx,rax
+    cmp qword ptr [rdx+T_TYPE],JT_ARRAY
+    jne .L_restore_content_scalar
+    # The first text part retains the actual composer text; image/base64 parts
+    # remain in provider history but are never dumped into the terminal.
+    shr rax,5
+    inc rax
+    mov rdx,rax
+    shl rdx,5
+    lea rcx,[rip+session_tokens]
+    cmp qword ptr [rcx+rdx+T_TYPE],JT_OBJECT
+    jne .L_restore_advance
+    mov rdx,rax
+    lea rdi,[rip+request_buffer]
+    lea rsi,[rip+session_tokens]
+    lea rcx,[rip+ui_text_key]
+    call json_find
+    test rax,rax
+    js .L_restore_advance
+    shl rax,5
+    lea rdx,[rip+session_tokens]
+    add rdx,rax
+.L_restore_content_scalar:
     cmp qword ptr [rdx+T_TYPE],JT_STRING
     jne .L_restore_advance
     lea rsi,[rip+request_buffer]
@@ -1934,6 +2802,16 @@ FUNC app_retry
     END
 FUNC app_approve
     mov r12,rdi
+    cmp qword ptr [rip+app_worker],0
+    je .L_approve_parent
+    cmp qword ptr [rip+app_worker_policy],1
+    jne .L_approve_denied
+    mov rsi,[rip+app_current_tool]
+    mov rdx,[rip+app_current_args]
+    mov rcx,[rip+app_current_arglen]
+    call agents_request_approval
+    END
+.L_approve_parent:
     cmp qword ptr [rip+app_ui_active],0
     jne .L_approve_ui
     cmp qword ptr [rip+app_yes],0
@@ -1965,6 +2843,15 @@ FUNC app_approve
     test eax,eax
     jnz .L_approve_yes
 .L_approve_cache:
+    call app_current_shell_command
+    test rax,rax
+    jle .L_approve_preview_cache
+    lea rdi,[rip+ui_permission_command]
+    mov rsi,rax
+    call ui_shell_permission_match
+    cmp eax,1
+    je .L_approve_yes
+.L_approve_preview_cache:
     mov rdi,r12
     call qx_strlen
     mov r13,rax
@@ -1993,6 +2880,14 @@ FUNC app_approve
     test eax,eax
     jnz .L_approve_auto_edit
 .L_approve_cache_always:
+    call app_current_shell_command
+    test rax,rax
+    jle .L_approve_cache_copy
+    lea rdi,[rip+ui_permission_command]
+    mov rsi,rax
+    mov edx,1
+    call ui_shell_permission_add
+.L_approve_cache_copy:
     cmp r13,MAX_JSON+127
     ja .L_approve_yes
     mov [rip+app_approval_length],r13
@@ -2012,6 +2907,67 @@ FUNC app_approve
 .L_approve_denied:
     xor eax,eax
     END
+FUNC app_parent_approve
+    sub rsp,32
+    mov rax,[rip+app_current_tool]
+    mov [rsp],rax
+    mov rax,[rip+app_current_args]
+    mov [rsp+8],rax
+    mov rax,[rip+app_current_arglen]
+    mov [rsp+16],rax
+    mov [rip+app_current_tool],rsi
+    mov [rip+app_current_args],rdx
+    mov [rip+app_current_arglen],rcx
+    call app_approve
+    mov rbx,rax
+    mov rax,[rsp]
+    mov [rip+app_current_tool],rax
+    mov rax,[rsp+8]
+    mov [rip+app_current_args],rax
+    mov rax,[rsp+16]
+    mov [rip+app_current_arglen],rax
+    mov rax,rbx
+    add rsp,32
+    END
+FUNC app_current_shell_command
+    mov rdi,[rip+app_current_tool]
+    test rdi,rdi
+    jz .L_shell_command_missing
+    lea rsi,[rip+ui_shell_tool_name]
+    call qx_streq
+    test eax,eax
+    jz .L_shell_command_missing
+    mov rdi,[rip+app_current_args]
+    test rdi,rdi
+    jz .L_shell_command_missing
+    mov rsi,[rip+app_current_arglen]
+    lea rdx,[rip+ui_permission_tokens]
+    mov ecx,MAX_TOKENS
+    call json_parse
+    test rax,rax
+    js .L_shell_command_missing
+    mov rdi,[rip+app_current_args]
+    lea rsi,[rip+ui_permission_tokens]
+    xor edx,edx
+    lea rcx,[rip+ui_command_key]
+    call json_find
+    test rax,rax
+    js .L_shell_command_missing
+    shl rax,5
+    lea rdx,[rip+ui_permission_tokens]
+    add rdx,rax
+    cmp qword ptr [rdx+T_TYPE],JT_STRING
+    jne .L_shell_command_missing
+    mov rsi,[rip+app_current_args]
+    add rsi,[rdx+T_START]
+    mov rdx,[rdx+T_LEN]
+    lea rdi,[rip+ui_permission_command]
+    mov ecx,65535
+    call json_decode
+    END
+.L_shell_command_missing:
+    mov rax,-1
+    END
 FUNC app_execute_tool
     mov r12,rdi
     mov r13,rsi
@@ -2020,6 +2976,8 @@ FUNC app_execute_tool
     mov rbx,r8
     cmp qword ptr [rip+app_worker],0
     je .L_parent_tool
+    cmp qword ptr [rip+app_worker_policy],1
+    je .L_base_tool
     mov rdi,r12
     lea rsi,[rip+name_read_file]
     call qx_streq
@@ -2359,6 +3317,9 @@ FUNC app_load_session
 .L_load_bad:
     mov rax,-1
     END
+.include "ui_commands.inc"
+.include "ui_provider_commands.inc"
+
 .section .rodata
 flag_help: .asciz "--help"
 flag_version: .asciz "--version"
@@ -2396,11 +3357,37 @@ cmd_sessions_ui: .asciz "/sessions"
 cmd_about_ui: .asciz "/about"
 cmd_copy_latex_prefix: .asciz "/copy latex "
 cmd_copy_mermaid_prefix: .asciz "/copy mermaid "
+cmd_rename_prefix: .asciz "/rename "
+cmd_auth_ui: .asciz "/auth"
+cmd_connect_ui: .asciz "/connect"
+cmd_login_ui: .asciz "/login"
+cmd_settings_ui: .asciz "/settings"
+cmd_account_ui: .asciz "/account"
+cmd_agents_manage_ui: .asciz "/agents manage"
+cmd_agents_create_ui: .asciz "/agents create"
+cmd_extensions_ui: .asciz "/extensions"
+cmd_extensions_manage_ui: .asciz "/extensions manage"
+cmd_extensions_list_ui: .asciz "/extensions list"
+cmd_reload_plugins_ui: .asciz "/reload-plugins"
+cmd_rename_ui: .asciz "/rename"
+cmd_delete_ui: .asciz "/delete"
+ui_rename_title: .asciz "Rename Session"
+ui_plugins_reloaded: .asciz "Plugins reloaded from disk."
+ui_renamed: .asciz "Session renamed."
+ui_deleted: .asciz "Selected sessions deleted."
+ui_delete_title: .asciz "Delete Sessions"
+ui_delete_confirm: .asciz "Permanently delete selected sessions?"
+ui_delete_cancel: .asciz "Cancel"
+ui_delete_yes: .asciz "Delete selected sessions"
+ui_session_mutation_failed: .asciz "Session change failed. Check that saving is enabled and the session belongs to this account."
 ui_copy_requested: .asciz "Clipboard copy requested; your terminal controls whether it is accepted."
 ui_no_tls_error: .asciz "no TLS error"
 ui_copy_missing: .asciz "No matching source block was found, or the clipboard request failed."
 .p2align 3
 ui_command_table:
+.quad cmd_auth_ui,.L_cmd_auth,cmd_connect_ui,.L_cmd_auth,cmd_login_ui,.L_cmd_auth,cmd_settings_ui,.L_cmd_settings,cmd_account_ui,.L_cmd_account
+.quad cmd_agents_manage_ui,.L_cmd_agents_manage,cmd_agents_create_ui,.L_cmd_agents_create,cmd_extensions_ui,.L_cmd_extensions,cmd_extensions_manage_ui,.L_cmd_extensions,cmd_extensions_list_ui,.L_cmd_extensions,cmd_reload_plugins_ui,.L_cmd_reload_plugins
+.quad cmd_rename_ui,.L_cmd_rename,cmd_delete_ui,.L_cmd_delete
 .quad cmd_help_ui,.L_cmd_help,cmd_clear_ui,.L_cmd_clear,cmd_reset_ui,.L_cmd_clear,cmd_retry_ui,.L_cmd_retry
 .quad cmd_model_ui,.L_cmd_model,cmd_theme_ui,.L_cmd_theme,cmd_approval_ui,.L_cmd_approval,cmd_about_ui,.L_cmd_about,cmd_resume_ui,.L_cmd_resume,cmd_sessions_ui,.L_cmd_resume,0,0
 ui_legacy_commands: .quad command_new,command_session,command_plugins,command_agents,command_quit,0
@@ -2410,6 +3397,8 @@ ui_running_session: .asciz "Stop the current session’s running agents before s
 ui_no_sessions: .asciz "No saved conversations found."
 ui_role_key: .asciz "role"
 ui_content_key: .asciz "content"
+ui_command_key: .asciz "command"
+ui_text_key: .asciz "text"
 ui_role_user: .asciz "user"
 ui_role_assistant: .asciz "assistant"
 ui_role_tool: .asciz "tool"
@@ -2419,6 +3408,26 @@ LITERAL ui_model_openai_prefix,"[openai] "
 LITERAL ui_model_oauth_prefix,"[qwen-oauth] "
 LITERAL ui_model_runtime_suffix," (Runtime)"
 ui_model_title: .asciz "Select Model"
+ui_protocol_openai: .asciz "openai"
+ui_key_source_none: .asciz "none"
+ui_key_source_stored: .asciz "stored"
+ui_key_source_environment: .asciz "environment"
+ui_protocol_oauth: .asciz "qwen-oauth"
+ui_external_agent_missing: .asciz "The selected external agent executable is not installed on PATH.\n"
+ui_auth_unconfigured: .asciz "Connect a provider with /auth"
+ui_protocol_anthropic: .asciz "anthropic"
+ui_protocol_responses: .asciz "openai-responses"
+ui_protocol_gemini: .asciz "gemini"
+ui_gemini_version: .asciz "/v1beta"
+ui_v1_version: .asciz "/v1"
+ui_models_prefix: .asciz "models/"
+ui_uri_hex: .ascii "0123456789ABCDEF"
+ui_protocol_missing: .asciz "The selected provider protocol is not available yet."
+ui_provider_key_missing: .asciz "The API key environment variable configured for this model is not set."
+LITERAL ui_model_modality,"Modality:       text/image input\nContext Window: "
+LITERAL ui_model_unknown_context,"(unknown)"
+LITERAL ui_model_base_label,"\nBase URL:       "
+LITERAL ui_model_key_label,"\nAPI Key Env:    "
 ui_model_current: .asciz "Runtime model"
 ui_model_note: .asciz "Model availability depends on your configured provider. Use /model NAME for a custom model."
 ui_model_plus: .asciz "qwen3-coder-plus"
@@ -2467,7 +3476,7 @@ env_openai_base: .asciz "OPENAI_BASE_URL"
 env_key: .asciz "QWEN_API_KEY"
 env_openai_key: .asciz "OPENAI_API_KEY"
 env_home: .asciz "HOME"
-version_text: .asciz "qwen-x86 0.2.0-ui-review.1 — static Linux x86-64 assembly; no libc or TLS library\n"
+version_text: .asciz "qwen-x86 0.2.0-ui-checkpoint.2 — static Linux x86-64 assembly; no libc or TLS library\n"
 help_text: .asciz "Qwen x86 — native assembly coding client\n\nUsage: qwen-x86 [--prompt TEXT] [--cwd DIR] [--model MODEL]\n                [--base-url URL] [--ca-file PEM] [--resume FILE]\n                [--yes] [--demo] [--no-save] [--version]\n                [--login] [--plugins] [--mcp-serve] [--help]\n\nAuthentication: --login for Qwen OAuth, or QWEN_API_KEY/OPENAI_API_KEY.\nModel/base: QWEN_MODEL/OPENAI_MODEL and QWEN_BASE_URL/OPENAI_BASE_URL.\nDefault tool writes/shell require approval; --yes permits them.\nCommands: /help /new /session /plugins /agents /quit. Ctrl+C cancels or exits at prompt.\n"
 usage_hint: .asciz "/help · /new · /session · /plugins · /agents · /quit | tool writes and shell ask permission"
 new_message: .asciz "New conversation."
@@ -2501,10 +3510,18 @@ LITERAL cancelled_tool,"Error: canceled; this remaining tool call was not execut
 cancelled_status: .asciz "Canceled."
 LITERAL binary_tool_output,"Error: tool output is not valid UTF-8 text; binary output omitted."
 LITERAL readonly_tool_error,"Error: this native subagent is read-only; write, shell, external tools and delegation are disabled."
+LITERAL ui_named_prompt_heading,"\n\nAssigned agent definition:\n"
+LITERAL ui_named_tool_mapping,"\n\nNative tool bindings: run_shell_command is run_shell; Edit/edit is edit_file. Use the actual available JSON tool schemas.\n"
 LITERAL readonly_role,"\n\nYou are a read-only subagent. Inspect and report only. You cannot modify files, run shell commands, use external tools, or delegate further. Your context is independent of the parent. Verify findings against actual files and return a concise report."
 LITERAL prompt_text,"› "
 LITERAL endpoint,"/chat/completions"
 .byte 0
+LITERAL endpoint_anthropic,"/messages"
+.byte 0
+LITERAL endpoint_responses,"/responses"
+.byte 0
+LITERAL endpoint_gemini,"/v1beta/models/"
+LITERAL endpoint_gemini_end,":streamGenerateContent?alt=sse"
 agents_file: .asciz "AGENTS.md"
 qwen_context_file: .asciz "QWEN.md"
 LITERAL qwen_context_heading,"\n\nWorkspace QWEN.md:\n"
@@ -2513,6 +3530,7 @@ LITERAL rules_heading,"\n\nWorkspace AGENTS.md:\n"
 LITERAL comma,","
 LITERAL user_begin,"{\"role\":\"user\",\"content\":"
 LITERAL assistant_begin,"{\"role\":\"assistant\",\"content\":"
+LITERAL provider_metadata_heading,",\"provider_metadata\":"
 LITERAL message_end,"}"
 LITERAL calls_begin,",\"tool_calls\":["
 LITERAL calls_end,"]}"
@@ -2534,6 +3552,8 @@ LITERAL json_suffix,".json"
 LITERAL temp_suffix,".tmp"
 open_array: .ascii "["
 close_array: .ascii "]\n"
+worker_definitions: .incbin "src/tools_worker.json"
+.equ worker_definitions_len,.-worker_definitions
 readonly_definitions: .incbin "src/tools_readonly.json"
 .equ readonly_definitions_len,.-readonly_definitions
 tool_definitions: .incbin "src/tools.json"
@@ -2542,6 +3562,8 @@ demo_sse: .ascii "data: {\"choices\":[{\"delta\":{\"content\":\"This is the nati
 .equ demo_sse_len,.-demo_sse
 .data
 .p2align 3
+ui_delete_confirm_items: .quad ui_delete_cancel,0,0,ui_delete_yes,0,1
+app_protocol: .quad ui_protocol_openai
 app_ca: .quad default_ca
 ui_model_items:
 .quad 0,ui_model_current,0
@@ -2573,7 +3595,19 @@ ui_theme_items: .zero 32*24
 ui_help_items: .zero 3*24
 ui_history_role: .zero 32
 ui_history_text: .zero MAX_JSON
+ui_rename_text: .zero 512
+ui_delete_items: .zero 64*24
+ui_attachment_json: .zero HISTORY_CAP
+ui_attachment_length: .zero 8
+ui_settings_json: .zero 65536
+provider_request_buffer: .zero REQUEST_CAP
+provider_stream_buffer: .zero REQUEST_CAP
+provider_request_length: .zero 8
+provider_metadata_buffer: .zero MAX_JSON
+ui_uri_triplet: .zero 3
 app_model_buffer: .zero 1024
+ui_configured_model_items: .zero 65*24
+ui_model_configured_count: .zero 8
 ui_model_metadata: .zero 4096
 ui_model_label: .zero 2048
 app_can_retry: .zero 8
@@ -2581,6 +3615,18 @@ app_retry_safe: .zero 8
 app_retry_history_len: .zero 8
 app_ui_active: .zero 8
 app_current_tool: .zero 8
+app_current_args: .zero 8
+app_current_arglen: .zero 8
+app_worker_policy: .zero 8
+app_agent_type: .zero 8
+app_agent_resume: .zero 8
+ui_agent_report: .zero 65536
+ui_named_prompt: .zero 65536
+app_auth_type_explicit: .zero 8
+app_needs_auth: .zero 8
+app_disconnected: .zero 8
+ui_permission_command: .zero 65536
+ui_permission_tokens: .zero MAX_TOKENS*TOKEN_SIZE
 app_tool_failed: .zero 8
 app_error_body_length: .zero 8
 app_error_body: .zero 16385

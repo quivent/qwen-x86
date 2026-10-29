@@ -1,0 +1,30 @@
+  ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
+   ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
+                                                                                                   █
+  Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           █
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                              │
+  │ Connect a Provider                                                                           │
+  │                                                                                              │
+  │ › 1. Alibaba ModelStudio                                                                     │
+  │      Official recommended setup: Coding Plan, Token Plan, or Standard API Key                │
+  │   2. Third-party Providers                                                                   │
+  │      Choose a built-in provider and connect with an API key                                  │
+  │   3. Custom Provider                                                                         │
+  │      Manually connect a local server, proxy, or unsupported provider                         │
+  │                                                                                              │
+  │                                                                                              │
+  │                                                                                              │
+  │ Enter to select, ↑↓ to navigate, type to search, Esc to close                                │
+  │                                                                                              │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+
+
+
+

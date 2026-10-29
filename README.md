@@ -1,12 +1,14 @@
 # qwen-x86
 
-**UI review: 267,216 bytes (261.0 KiB)** — statically linked x86-64 assembly, including TLS and cryptography. No libc, Node.js, Go runtime, or shared TLS library.
+**Private UI checkpoint: 3,446,008 bytes (3.29 MiB)** — statically linked x86-64 assembly, including TLS and cryptography. No libc, Node.js, Go runtime, or shared TLS library.
 
-[See the running assembly UI](#the-assembly-ui) · [Download the private review build](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-review.1)
+[See the running assembly UI](#the-assembly-ui) · [Download the private review build](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-checkpoint.2)
 
 ## Benchmarks
 
-### UI review: actual interactive rendering
+### Historical UI review: actual interactive rendering
+
+These measurements describe `v0.2.0-ui-review.1` (267,216 bytes), not the current checkpoint.
 
 Medians of three repetitions per client, 100×30 terminal, the same 56,033-byte response in 399 paced chunks. Lower is better. Timing and memory use separate passes; every full response is verified through a subsequent model request.
 
@@ -43,14 +45,14 @@ These earlier measurements preceded the wait optimization. Streaming and memory 
 
 Local controlled fixtures measure client overhead. The clients have different feature sets; JavaScript includes extra default cleanup. These results do not measure real model inference, WAN latency, or interactive TUI rendering. [Usage methodology](docs/usage-benchmark.json) · [Startup methodology](docs/benchmark.json) · [Detailed optimization](#critical-path-wait-optimization).
 
-**UI review on `fix/ui-parity`.** The v0.1.0 release implements a reduced terminal interface, not Qwen Code UI parity. The measurements above describe that core client; they do not establish UI equivalence or measure the replacement renderer. The installation below selects the separate UI review build. Full UI parity is not achieved: extension/agent management, attachments, custom themes and some rendering/interaction details remain different or absent. [Screen comparisons and remaining differences](docs/ui-parity.md).
+**Private checkpoint on `fix/ui-parity`. Full UI parity is unfinished.** Known omissions are listed explicitly below; the project is paused for review.
 
 A Linux x86-64 coding client written in GNU Intel-syntax assembly. The production executable is statically linked assembly: no libc, JavaScript engine, Go runtime, shared TLS library, or HTTPS helper process.
 
 
 ## The assembly UI
 
-Recorded from the running **267,216-byte assembly executable**, using real terminal sessions and a local model fixture. These screens belong to the [private UI review build](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-review.1). The implementation is under review in [PR #1](https://github.com/quivent/qwen-x86/pull/1).
+Recorded from the running assembly executable, using real terminal sessions and a local model fixture. These screens belong to the [private checkpoint build](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-checkpoint.2). The implementation is under review in [PR #1](https://github.com/quivent/qwen-x86/pull/1).
 
 ![Assembly client startup and composer](docs/ui-captures/native/initial-100x30.png)
 
@@ -62,20 +64,57 @@ Recorded from the running **267,216-byte assembly executable**, using real termi
 |---|---|
 | ![Assembly theme picker and code preview](docs/ui-captures/native/dialog-theme.png) | ![Assembly saved-session transcript preview](docs/ui-captures/native/session-preview-top.png) |
 
-[Compare all 23 states with Qwen Code](https://github.com/quivent/qwen-x86/blob/fix/ui-parity/docs/ui-parity.md) · [Raw terminal text and cell records](https://github.com/quivent/qwen-x86/tree/fix/ui-parity/docs/ui-captures)
+| Extension management | Agent management |
+|---|---|
+| ![Assembly extensions](docs/ui-captures/native/dialog-extensions.png) | ![Assembly agents](docs/ui-captures/native/dialog-agents-manage.png) |
 
-**Full UI parity remains incomplete.** Extension/agent management, attachments, custom themes and some rendering/interaction details still differ or are absent. The review documents those gaps.
+| Authentication | Settings — incomplete source equivalent |
+|---|---|
+| ![Assembly authentication](docs/ui-captures/native/dialog-auth.png) | ![Assembly settings](docs/ui-captures/native/dialog-settings.png) |
+
+[Compare the recorded states with Qwen Code](https://github.com/quivent/qwen-x86/blob/fix/ui-parity/docs/ui-parity.md) · [Raw terminal text and cell records](https://github.com/quivent/qwen-x86/tree/fix/ui-parity/docs/ui-captures)
+
+**Full UI parity remains incomplete.** See the checkpoint’s known misses below.
+
+## Checkpoint — 29 October 2026
+
+**Paused for review at the user's request. Full Qwen Code UI parity is not achieved.** This checkpoint is on [`fix/ui-parity`](https://github.com/quivent/qwen-x86/tree/fix/ui-parity); the repository remains private. The current executable is **3,446,008 bytes (3.29 MiB)**. Its size includes approximately 3 MB of immutable ICU dictionaries for matching the reference's word editing; the application, TLS, cryptography and segmentation execute as static assembly.
+
+This checkpoint adds native agent/extension management, session rename and multi-select deletion, text/image `@file` input, custom themes, controlling shell PTYs, persisted exact-command permissions, configured provider selection, masked account setup, and Anthropic/Responses/Gemini adapters. Native child mutations use parent approval; external Codex/ACP agents use their actual process protocols. These implementations and their tests do not establish complete source equivalence.
+
+**The benchmark tables above describe earlier binaries. This checkpoint has not been benchmarked again.** [Current verification receipt](docs/ui-checkpoint-verification.json) · [Recorded comparisons](docs/ui-parity.md).
+
+**Validation:** 490 tests passed; 1 optional public-network probe skipped (491 discovered). A source-only rebuild produced the identical executable. All 25 native capture records match its SHA-256.
+
+### Known misses
+
+- **Visual and interaction parity is unfinished.** Six recorded dialog borders now match the reference's positions and dimensions at 100×30. This is a geometry check, not a passing comparison of every cell, dialog state, theme or terminal size. Settings, authentication setup steps, populated management views and numerous source screens still differ.
+- **Syntax highlighting is partial.** Qwen registers 37 common lowlight grammars. The native lexer has explicit profiles for Python, JavaScript/TypeScript aliases, Go, Rust, JSON, C/C++, SQL, Bash, YAML and assembly plus a common fallback. Full grammar modes, exact auto-detection scoring, regular-expression literals and template interpolation are unfinished.
+- **Rich rendering still has differences.** Deeply nested Markdown styles and header recoloring are not exhaustively equivalent. All eleven source Mermaid families have native renderers, but advanced/malformed constructs lack exhaustive reference coverage; generic previews clip at 1,000 UTF-8 bytes rather than the source's 1,000 UTF-16 units.
+- **Advanced mouse behavior is incomplete.** Composer hit-testing, selection, double/triple clicks, menu/dialog selection, wheel events, scrollbar movement and transcript clipboard extraction exist. Transcript selection highlighting, exact scrollbar thumb grabbing, the source right-click context menu and complete drag/autoscroll behavior are unfinished. Right-click currently copies the latest assistant response directly. These new integration paths lack complete end-to-end coverage.
+- **Attachments cover explicit files, not the full source context system.** Quoted/escaped text paths and PNG/JPEG/GIF/WebP bytes enter actual model requests. Folder/glob expansion, full gitignore handling, clipboard image paste, PDFs/audio/video and the full session/extension/MCP mention system are missing. Individual files are currently limited to 256 KiB.
+- **The full command catalog and its screens are not ported.** Examples include `/skills`, the source `/mcp` management panel, `/stats`, `/memory`, `/rewind`, `/branch`, `/export`, `/hooks`, `/effort`, `/output-style`, `/trust`, `/arena`, `/workflows`, `/goal`, `/language` and `/vim`. The bare source `/copy` action and ghost-text suggestions are also absent. Unknown slash commands fail explicitly.
+- **Settings and provider setup are narrower than the source.** Native controls edit real connection/theme/approval state, but the complete settings schema, provider-specific validation, advanced setup and all wizard states are unfinished. Setup activates one selected preset model; it does not install whole preset model lists. There is one active private key, not a per-provider key registry; switching imported profiles relies on their environment key bindings. Vertex AI/ADC/service-account authentication is unavailable. Imported inline profile keys are not implemented.
+- **Provider adapters cover tested flows, not every SDK feature.** Local fixtures verify text, local images, tool loops and replay of Responses encrypted reasoning/Gemini signed model parts. Extended-thinking presentation, every event/parameter, citations, complete usage metadata and every remote-image case remain unverified. No authenticated remote inference or real device authorization was performed for this checkpoint.
+- **Agent definitions do not yet have full source policy semantics.** YAML is preserved and edited with framing/UTF-8 validation, not a full YAML/schema parser. Custom tool allow/deny lists, model/run configuration, approval overrides and related metadata are not fully enforced; unsupported custom executor/MCP/hook declarations fail explicitly. Inherited native workers expose the native base tools, not every parent MCP/plugin/delegation capability. Explore lacks the source's complete read-only shell classification and web/LSP/skill tools.
+- **External agent behavior has remaining limits.** Actual Codex app-server and Claude ACP wire protocols are implemented and verified against process fixtures, not real billed accounts. Custom executor commands/arguments and complete thought/tool/progress/non-text presentation are missing. ACP follow-up requires advertised `session/load`; peers without it cannot retain a live session across worker restarts. Cleanup is verified for owned process groups, not descendants that create independent groups.
+- **Shell permissions and presentation are not source-complete.** Persisted grants match exact commands in native state; source shell-AST prefix rules, deny/ask precedence and the complete permissions editor are absent. Direct shell input uses a real controlling PTY, but source inline focus/promotion UI, a persistent shell process/cwd and complete large-input backpressure coverage are missing.
+- **Extensions support a subset of installation and lifecycle formats.** Sources CRUD, discovery, native enable/favorite state, uninstall, Git installation and atomic update are functional. Installation currently requires a Qwen-manifest Git repository. Nongit directory copies, Claude marketplace subdirectories/`plugin.json` conversion, npm/archive sources, refs/releases and all selector forms are missing. Discovery can expose entries the installer cannot yet install.
+- **Native extension state is separate from original Qwen activation state.** Native markers control the native loader; they do not update Qwen's journal/preferences. Prompt commands/skills and approved MCP registration work, but complete hooks/workflows/context/settings/extension-agent lifecycles and linked installs are absent. MCP remote transport, pagination and the full source management UI remain unsupported.
+- **Session compatibility is native-first.** Rename, preview, multi-delete and ACP continuation sidecars work for native sessions. Complete original Qwen session import, grouping, branching/rewind and attachment cleanup are missing. The source-format shell history wrapper remains ambiguous when a user types identical delimiters.
+- **Verification has limits.** Five ICU dictionary engines and Unicode word rules match the recorded multilingual/emoji goldens; this is not proof for every `Intl.Segmenter` input. Matching screenshots, passing unit tests and local protocol fixtures must not be represented as a complete parity percentage. The existing restricted TLS/X.509 support documented below also remains unchanged.
+
 
 ## Install globally
 
-The prebuilt Linux x86-64 UI review executable is available in [Releases](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-review.1). This is a private prerelease for reviewing the corrected interface; [remaining differences](docs/ui-parity.md) are explicit. It includes TLS and cryptography. Running it requires Linux x86-64, AES-NI, and a PEM CA trust store, normally `/etc/ssl/certs/ca-certificates.crt`.
+The prebuilt Linux x86-64 UI review executable is available in [Releases](https://github.com/quivent/qwen-x86/releases/tag/v0.2.0-ui-checkpoint.2). This is a private, incomplete checkpoint for review; [remaining differences](docs/ui-parity.md) are explicit. It includes TLS and cryptography. Running it requires Linux x86-64, AES-NI, and a PEM CA trust store, normally `/etc/ssl/certs/ca-certificates.crt`.
 
 While the repository is private, use an authenticated GitHub CLI account with repository access:
 
 ```sh
 set -e
 install_dir=$(mktemp -d)
-gh release download v0.2.0-ui-review.1 --repo quivent/qwen-x86 --pattern qwen-x86-linux-amd64 --pattern SHA256SUMS --dir "$install_dir"
+gh release download v0.2.0-ui-checkpoint.2 --repo quivent/qwen-x86 --pattern qwen-x86-linux-amd64 --pattern SHA256SUMS --dir "$install_dir"
 (cd "$install_dir" && sha256sum --check SHA256SUMS)
 sudo install -m 755 "$install_dir/qwen-x86-linux-amd64" /usr/local/bin/qwen-x86
 rm -r "$install_dir"
@@ -103,7 +142,7 @@ For a user-only installation without `sudo`, replace the `sudo install` line wit
 Requires GNU `as` and GNU `ld`. Clone using SSH and install the command into `~/.local/bin`:
 
 ```sh
-git clone --branch v0.2.0-ui-review.1 git@github.com:quivent/qwen-x86.git
+git clone --branch v0.2.0-ui-checkpoint.2 git@github.com:quivent/qwen-x86.git
 cd qwen-x86
 make install
 qwen-x86 --version
@@ -125,7 +164,7 @@ qwen-x86 --version
 - Searchable native-session picker and read-only Space preview; Enter resumes. Tabbed help and explicit source-copy actions work without model requests.
 - Busy input steering/queueing, mouse-wheel scroll and cancellation. See [UI review limits](docs/ui-parity.md) for unimplemented reference surfaces.
 - Workspace-relative `read_file`, `list_directory`, atomic `write_file`, exact `edit_file`, and approved `run_shell`. File tools reject symlinks and parent traversal, with a 64 KiB text limit. Shell commands execute with the user's ordinary account permissions.
-- Up to three concurrent forked read-only agents, separate histories, saved follow-ups, status, waiting, and cancellation.
+- Up to three concurrent forked agents, read-only by default, with parent approval for inherited writes, separate histories, saved follow-ups, waiting and cancellation. Codex/ACP external agents require their installed executables.
 - Interactive Ctrl+C stops a running shell or MCP operation and skips remaining tool calls in that response. Canceled batches save matching tool results before returning to the prompt.
 - Private atomic JSON session snapshots under `~/.local/state/qwen-x86/`; `--resume FILE`, `--no-save`, and `/new`.
 - Shared Go-client prompt/skill plugin folders at `~/.config/qwen-go/plugins` and `.qwen-go/plugins`. List with `--plugins` or `/plugins`; invoke `/plugin:command` or `/skill plugin:skill`.

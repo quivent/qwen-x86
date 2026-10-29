@@ -1333,12 +1333,19 @@ input_consumed:
  cmp bl,109
  sete dl
  mov [r12+C_MOUSE_RELEASE],rdx
+ cmp eax,255
+ ja .Lbyte_ret
+ test eax,64
+ jz .Lsgr_nonwheel
  test edx,edx
  jnz .Lbyte_ret
- cmp eax,64
+ and eax,3
+ cmp eax,0
  je .Lsgr_wheel_up
- cmp eax,65
+ cmp eax,1
  je .Lsgr_wheel_down
+.Lsgr_nonwheel:
+ or r15d,INPUT_MOUSE_EVENT
  ret
 .Lsgr_wheel_up:
  or r15d,INPUT_MOUSE_SCROLL_UP
@@ -1655,6 +1662,8 @@ input_consumed:
  mov rdi,[r12+C_BUF]
  mov rsi,[r12+C_LEN]
  call .Ldecode
+ cmp eax,0xfeff
+ je .Lwc_space
  call .Lprops
  test eax,1024
  jnz .Lwc_space
@@ -1689,6 +1698,14 @@ input_consumed:
 .Lword_left:
  push rbx
  sub rsp,16
+ mov rdi,r12
+ xor esi,esi
+ call .D_navigation
+ test rax,rax
+ js .Lwl_native_fallback
+ mov [rsp],rax
+ jmp .Lwl_done
+.Lwl_native_fallback:
  mov rax,[r12+C_CUR]
  mov [rsp],rax
  xor ebx,ebx
@@ -1751,6 +1768,14 @@ input_consumed:
 .Lword_right:
  push rbx
  sub rsp,16
+ mov rdi,r12
+ mov esi,1
+ call .D_navigation
+ test rax,rax
+ js .Lwr_native_fallback
+ mov [rsp],rax
+ jmp .Lwr_done
+.Lwr_native_fallback:
  mov rax,[r12+C_CUR]
  mov [rsp],rax
  cmp rax,[r12+C_LEN]
@@ -2292,3 +2317,2312 @@ input_timeout:
 .section .rodata
 .Lpaste_end: .ascii "\033[201~"
 .section .note.GNU-stack,"",@progbits
+
+.text
+.global ui_decode_mouse
+# Complete SGR packet ptr,len,out32 ->0valid/-22. No editor side effects.
+ui_decode_mouse:
+ cmp rsi,9
+ jb .Lmouse_decode_bad
+ cmp rsi,32
+ ja .Lmouse_decode_bad
+ cmp word ptr [rdi],0x5b1b
+ jne .Lmouse_decode_bad
+ cmp byte ptr [rdi+2],60
+ jne .Lmouse_decode_bad
+ sub rsp,24
+ mov r11,rdx
+ mov ecx,3
+ xor r8d,r8d
+ xor r9d,r9d
+ xor r10d,r10d
+.Lmouse_decode_byte:
+ cmp rcx,rsi
+ jae .Lmouse_decode_invalid
+ movzx eax,byte ptr [rdi+rcx]
+ inc rcx
+ cmp al,59
+ je .Lmouse_decode_separator
+ cmp al,77
+ je .Lmouse_decode_final
+ cmp al,109
+ je .Lmouse_decode_final
+ sub eax,48
+ cmp eax,9
+ ja .Lmouse_decode_invalid
+ imul r9d,r9d,10
+ add r9d,eax
+ cmp r9d,65535
+ ja .Lmouse_decode_invalid
+ inc r10d
+ jmp .Lmouse_decode_byte
+.Lmouse_decode_separator:
+ test r10d,r10d
+ jz .Lmouse_decode_invalid
+ cmp r8d,2
+ jae .Lmouse_decode_invalid
+ mov [rsp+r8*8],r9
+ inc r8
+ xor r9d,r9d
+ xor r10d,r10d
+ jmp .Lmouse_decode_byte
+.Lmouse_decode_final:
+ cmp rcx,rsi
+ jne .Lmouse_decode_invalid
+ cmp r8d,2
+ jne .Lmouse_decode_invalid
+ test r10d,r10d
+ jz .Lmouse_decode_invalid
+ test r9d,r9d
+ jz .Lmouse_decode_invalid
+ cmp qword ptr [rsp+8],0
+ je .Lmouse_decode_invalid
+ cmp qword ptr [rsp],255
+ ja .Lmouse_decode_invalid
+ mov [rsp+16],r9
+ xor r10d,r10d
+ cmp al,109
+ sete r10b
+ mov rax,[rsp]
+ mov [r11],rax
+ mov rax,[rsp+8]
+ mov [r11+8],rax
+ mov [r11+16],r9
+ mov [r11+24],r10
+ add rsp,24
+ xor eax,eax
+ ret
+.Lmouse_decode_invalid:
+ add rsp,24
+.Lmouse_decode_bad:
+ mov rax,-22
+ ret
+
+.text
+.global input_pointer,input_selection,input_select_line,input_select_word
+# Context, absolute visual row0, content column0, extend ->INPUT_CHANGED.
+# Layout is exactly the editor's grapheme/wide-cell wrapping geometry.
+input_pointer:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ mov r12,rdi
+ mov r13,rsi
+ mov r14,rdx
+ mov rbx,rcx
+ xor r15d,r15d
+ call .Lvisual_layout
+ mov rax,[r12+C_VCOUNT]
+ dec rax
+ cmp r13,rax
+ cmova r13,rax
+ test rbx,rbx
+ jnz .Lpointer_extend
+ mov qword ptr [r12+C_ANCHOR],-1
+ jmp .Lpointer_seek
+.Lpointer_extend:
+ cmp qword ptr [r12+C_ANCHOR],-1
+ jne .Lpointer_seek
+ mov rax,[r12+C_CUR]
+ mov [r12+C_ANCHOR],rax
+.Lpointer_seek:
+ mov [r12+C_GOAL],r14
+ mov rax,r13
+ call .Lvisual_target
+ mov qword ptr [r12+C_GOAL],-1
+ mov rax,r15
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+# Borrowed selected UTF8 bytes; empty selection returns0 and NULL/0.
+input_selection:
+ mov qword ptr [rsi],0
+ mov qword ptr [rsi+8],0
+ xor eax,eax
+ mov r8,[rdi+C_ANCHOR]
+ cmp r8,-1
+ je .Lselection_return
+ mov r9,[rdi+C_CUR]
+ cmp r8,r9
+ je .Lselection_return
+ jb .Lselection_ordered
+ xchg r8,r9
+.Lselection_ordered:
+ cmp r9,[rdi+C_LEN]
+ ja .Lselection_return
+ mov rdx,[rdi+C_BUF]
+ add rdx,r8
+ mov [rsi],rdx
+ sub r9,r8
+ mov [rsi+8],r9
+ mov eax,1
+.Lselection_return:
+ ret
+input_select_line:
+ push r12
+ push r13
+ push r15
+ mov r12,rdi
+ xor r15d,r15d
+ call .Lhome
+ mov r13,[r12+C_CUR]
+ call .Lend
+ mov [r12+C_ANCHOR],r13
+ mov qword ptr [r12+C_GOAL],-1
+ mov rax,r15
+ pop r15
+ pop r13
+ pop r12
+ ret
+input_select_word:
+ push r12
+ push r13
+ push r15
+ mov r12,rdi
+ xor r15d,r15d
+ mov rax,[r12+C_CUR]
+ cmp rax,[r12+C_LEN]
+ jae .Lselect_word_eof
+ inc rax
+ # Word-left accepts an index just after the clicked scalar.
+ mov rdx,[r12+C_CUR]
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ call ui_next_grapheme
+ jmp .Lselect_word_left
+.Lselect_word_eof:
+ test rax,rax
+ jz .Lselect_word_empty
+.Lselect_word_left:
+ mov [r12+C_CUR],rax
+ call .Lword_left
+ mov r13,[r12+C_CUR]
+ call .Lword_right
+ mov rax,[r12+C_CUR]
+.Lselect_word_trim:
+ cmp rax,r13
+ jbe .Lselect_word_commit
+ call .Lprev_scalar
+ mov [r12+C_CUR],rax
+ mov rdx,rax
+ call .Lword_class
+ test eax,eax
+ jz .Lselect_word_next_trim
+ # C_CUR currently points before the last nonspace scalar; restore its end.
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ mov rdx,[r12+C_CUR]
+ call ui_next_grapheme
+ mov [r12+C_CUR],rax
+ jmp .Lselect_word_commit
+.Lselect_word_next_trim:
+ mov rax,[r12+C_CUR]
+ jmp .Lselect_word_trim
+.Lselect_word_commit:
+ mov [r12+C_ANCHOR],r13
+ mov qword ptr [r12+C_DIRTY],1
+ mov eax,INPUT_CHANGED
+ jmp .Lselect_word_return
+.Lselect_word_empty:
+ mov qword ptr [r12+C_ANCHOR],-1
+ mov eax,INPUT_CHANGED
+.Lselect_word_return:
+ pop r15
+ pop r13
+ pop r12
+ ret
+
+# ICU78.2 UCharsTrie dictionary machine. Immutable data are copied from the
+# exact installed Qwen reference Node; no ICU/Node/shared library is used here.
+# Source algorithm: unicode-org/icu release-78.2/common/ucharstrie.cpp.
+.text
+# state(pos*,remaining),UTF16 unit ->EAX no-match0/no-value1/value2/final3,EDXcost.
+.D_step:
+ push rbx
+ push r12
+ push r13
+ mov r12,rdi
+ mov r13d,esi
+ mov rbx,[r12]
+ test rbx,rbx
+ jz .D_step_no
+ mov rcx,[r12+8]
+ test rcx,rcx
+ js .D_step_node
+ movzx eax,word ptr [rbx]
+ cmp eax,r13d
+ jne .D_step_no
+ add rbx,2
+ dec rcx
+ mov [r12+8],rcx
+ jmp .D_step_current
+.D_step_node:
+ movzx eax,word ptr [rbx]
+ add rbx,2
+.D_step_node_type:
+ cmp eax,0x30
+ jb .D_step_branch
+ cmp eax,0x40
+ jb .D_step_linear
+ test eax,0x8000
+ jnz .D_step_no
+ cmp eax,0x4040
+ jb .D_step_skip_node_ready
+ cmp eax,0x7fc0
+ jb .D_step_skip_node_two
+ add rbx,2
+.D_step_skip_node_two:
+ add rbx,2
+.D_step_skip_node_ready:
+ and eax,0x3f
+ jmp .D_step_node_type
+.D_step_linear:
+ sub eax,0x30
+ dec eax
+ movsxd rcx,eax
+ mov [r12+8],rcx
+ movzx eax,word ptr [rbx]
+ cmp eax,r13d
+ jne .D_step_no
+ add rbx,2
+ jmp .D_step_current
+.D_step_branch:
+ mov r10d,eax
+ test r10d,r10d
+ jnz .D_step_branch_length
+ movzx r10d,word ptr [rbx]
+ add rbx,2
+.D_step_branch_length:
+ inc r10d
+.D_step_binary:
+ cmp r10d,5
+ jbe .D_step_branch_linear
+ movzx eax,word ptr [rbx]
+ add rbx,2
+ xor r9d,r9d
+ cmp r13d,eax
+ setb r9b
+ movzx eax,word ptr [rbx]
+ add rbx,2
+ cmp eax,0xfc00
+ jb .D_step_binary_delta
+ cmp eax,0xffff
+ je .D_step_binary_three
+ sub eax,0xfc00
+ shl eax,16
+ movzx edx,word ptr [rbx]
+ or eax,edx
+ add rbx,2
+ jmp .D_step_binary_delta
+.D_step_binary_three:
+ movzx eax,word ptr [rbx]
+ shl eax,16
+ movzx edx,word ptr [rbx+2]
+ or eax,edx
+ add rbx,4
+.D_step_binary_delta:
+ mov ecx,r10d
+ shr ecx,1
+ test r9d,r9d
+ jz .D_step_binary_right
+ mov r10d,ecx
+ lea rbx,[rbx+rax*2]
+ jmp .D_step_binary
+.D_step_binary_right:
+ sub r10d,ecx
+ jmp .D_step_binary
+.D_step_branch_linear:
+ cmp r10d,1
+ je .D_step_branch_last
+ movzx eax,word ptr [rbx]
+ add rbx,2
+ cmp eax,r13d
+ je .D_step_branch_found
+ movzx eax,word ptr [rbx]
+ add rbx,2
+ and eax,0x7fff
+ cmp eax,0x4000
+ jb .D_step_branch_skip_ready
+ cmp eax,0x7fff
+ jb .D_step_branch_skip_two
+ add rbx,2
+.D_step_branch_skip_two:
+ add rbx,2
+.D_step_branch_skip_ready:
+ dec r10d
+ jmp .D_step_branch_linear
+.D_step_branch_found:
+ movzx eax,word ptr [rbx]
+ test eax,0x8000
+ jnz .D_step_branch_at_value
+ add rbx,2
+ cmp eax,0x4000
+ jb .D_step_branch_delta_ready
+ cmp eax,0x7fff
+ je .D_step_branch_delta_three
+ sub eax,0x4000
+ shl eax,16
+ movzx edx,word ptr [rbx]
+ or eax,edx
+ add rbx,2
+ jmp .D_step_branch_delta_ready
+.D_step_branch_delta_three:
+ movzx eax,word ptr [rbx]
+ shl eax,16
+ movzx edx,word ptr [rbx+2]
+ or eax,edx
+ add rbx,4
+.D_step_branch_delta_ready:
+ lea rbx,[rbx+rax*2]
+.D_step_branch_at_value:
+ mov qword ptr [r12+8],-1
+ jmp .D_step_current
+.D_step_branch_last:
+ movzx eax,word ptr [rbx]
+ add rbx,2
+ cmp eax,r13d
+ jne .D_step_no
+ mov qword ptr [r12+8],-1
+.D_step_current:
+ mov [r12],rbx
+ cmp qword ptr [r12+8],0
+ jge .D_step_no_value
+ movzx eax,word ptr [rbx]
+ cmp eax,0x40
+ jb .D_step_no_value
+ test eax,0x8000
+ jz .D_step_intermediate_value
+ and eax,0x7fff
+ cmp eax,0x4000
+ jb .D_step_final_small
+ cmp eax,0x7fff
+ je .D_step_final_three
+ sub eax,0x4000
+ shl eax,16
+ movzx edx,word ptr [rbx+2]
+ or edx,eax
+ jmp .D_step_final_result
+.D_step_final_three:
+ movzx edx,word ptr [rbx+2]
+ shl edx,16
+ movzx eax,word ptr [rbx+4]
+ or edx,eax
+ jmp .D_step_final_result
+.D_step_final_small:
+ mov edx,eax
+.D_step_final_result:
+ mov eax,3
+ jmp .D_step_return
+.D_step_intermediate_value:
+ cmp eax,0x4040
+ jb .D_step_intermediate_small
+ cmp eax,0x7fc0
+ jae .D_step_intermediate_three
+ and eax,0x7fc0
+ sub eax,0x4040
+ shl eax,10
+ movzx edx,word ptr [rbx+2]
+ or edx,eax
+ jmp .D_step_intermediate_result
+.D_step_intermediate_three:
+ movzx edx,word ptr [rbx+2]
+ shl edx,16
+ movzx eax,word ptr [rbx+4]
+ or edx,eax
+ jmp .D_step_intermediate_result
+.D_step_intermediate_small:
+ shr eax,6
+ lea edx,[rax-1]
+.D_step_intermediate_result:
+ mov eax,2
+ jmp .D_step_return
+.D_step_no_value:
+ mov eax,1
+ xor edx,edx
+ jmp .D_step_return
+.D_step_no:
+ mov qword ptr [r12],0
+ xor eax,eax
+ xor edx,edx
+.D_step_return:
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.D_step_cp:
+ cmp esi,0xffff
+ jbe .D_step
+ push rbx
+ push r12
+ sub rsp,8
+ mov rbx,rdi
+ mov r12d,esi
+ sub esi,0x10000
+ shr esi,10
+ add esi,0xd800
+ call .D_step
+ cmp eax,1
+ je .D_step_trail
+ cmp eax,2
+ jne .D_step_supplementary_no
+.D_step_trail:
+ mov rdi,rbx
+ mov esi,r12d
+ and esi,1023
+ add esi,0xdc00
+ call .D_step
+ jmp .D_step_cp_return
+.D_step_supplementary_no:
+ xor eax,eax
+.D_step_cp_return:
+ add rsp,8
+ pop r12
+ pop rbx
+ ret
+# Code point array,count,costs20: -1 for no word; otherwise exact dictionary cost.
+.D_matches:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ sub rsp,16
+ mov r12,rdi
+ mov r13,rsi
+ cmp r13,20
+ jbe .D_matches_count
+ mov r13d,20
+.D_matches_count:
+ mov r14,rdx
+ mov rdi,rdx
+ mov ecx,20
+ mov eax,-1
+ rep stosd
+ lea rax,[rip+.Ldictionary_trie]
+ mov [rsp],rax
+ mov qword ptr [rsp+8],-1
+ xor r15d,r15d
+.D_matches_next:
+ cmp r15,r13
+ jae .D_matches_done
+ mov rdi,rsp
+ mov esi,[r12+r15*4]
+ call .D_step_cp
+ test eax,eax
+ jz .D_matches_done
+ cmp eax,1
+ je .D_matches_continue
+ mov [r14+r15*4],edx
+ cmp eax,3
+ je .D_matches_done
+.D_matches_continue:
+ inc r15
+ jmp .D_matches_next
+.D_matches_done:
+ add rsp,16
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+
+.section .rodata
+.balign 2
+.Ldictionary_trie:
+.incbin "ui_cjk_icu78.bin"
+.Ldictionary_trie_end:
+.include "ui_dictionary.inc"
+
+# Native CJK segmentation uses ICU's exact dictionary costs and dynamic program.
+# UTF8 spans are mapped through Unicode17 NFKC compatibility/kana normalization.
+.equ D_RAW,0
+.equ D_RAWLEN,8
+.equ D_OUT,16
+.equ D_CAP,24
+.equ D_NORM,32
+.equ D_ORIGCOUNT,40
+.equ D_ORIGPOS,48
+.equ D_NEXT,56
+.equ D_CODES,64
+.equ D_MAP,D_CODES+4096*4
+.equ D_COST,D_MAP+4097*8
+.equ D_PREV,D_COST+4097*4
+.equ D_BREAK,D_PREV+4097*4
+.equ D_MATCH,((D_BREAK+4097+7)/8)*8
+.equ D_LOCALS,D_MATCH+80
+.equ D_FRAME,((D_LOCALS+64+15)/16)*16+8
+.text
+.D_is_cjk:
+ cmp eax,0x30fc
+ je .D_bool_yes
+ cmp eax,0x3099
+ je .D_bool_yes
+ cmp eax,0x309a
+ je .D_bool_yes
+ cmp eax,0xff70
+ je .D_bool_yes
+ cmp eax,0xff9e
+ je .D_bool_yes
+ cmp eax,0xff9f
+ je .D_bool_yes
+ sub rsp,8
+ call .Lprops
+ add rsp,8
+ and eax,0xf800
+ cmp eax,8<<11
+ jb .D_bool_no
+ cmp eax,10<<11
+ ja .D_bool_no
+.D_bool_yes:
+ mov eax,1
+ ret
+.D_bool_no:
+ xor eax,eax
+ ret
+.D_is_katakana:
+ cmp eax,0x30a1
+ jb .D_kata_halfwidth
+ cmp eax,0x30fe
+ ja .D_kata_halfwidth
+ cmp eax,0x30fb
+ jne .D_bool_yes
+.D_kata_halfwidth:
+ cmp eax,0xff66
+ jb .D_bool_no
+ cmp eax,0xff9f
+ jbe .D_bool_yes
+ jmp .D_bool_no
+# CP ->RDI normalized sequence pointer or0,ECX count. Sorted immutable table.
+.D_nfkc_lookup:
+ xor ecx,ecx
+ mov r8d,DICT_NFKC_COUNT
+ lea r9,[rip+.Ldict_nfkc]
+.D_nfkc_search:
+ cmp ecx,r8d
+ jae .D_nfkc_none
+ lea edx,[rcx+r8]
+ shr edx,1
+ lea r10,[rdx+rdx*2]
+ lea r10,[r9+r10*4]
+ cmp eax,[r10]
+ jb .D_nfkc_lower
+ ja .D_nfkc_upper
+ mov ecx,[r10+8]
+ mov edx,[r10+4]
+ lea rdi,[rip+.Ldict_nfkc_pool]
+ lea rdi,[rdi+rdx*4]
+ ret
+.D_nfkc_lower:
+ mov r8d,edx
+ jmp .D_nfkc_search
+.D_nfkc_upper:
+ lea ecx,[rdx+1]
+ jmp .D_nfkc_search
+.D_nfkc_none:
+ xor edi,edi
+ xor ecx,ecx
+ ret
+# Append CP EAX, compose Hiragana/Katakana combining voice marks in-place.
+.D_append_normalized:
+ mov rdx,[rbx+D_NORM]
+ test rdx,rdx
+ jz .D_append_plain
+ cmp eax,0x3099
+ je .D_append_compose
+ cmp eax,0x309a
+ jne .D_append_plain
+.D_append_compose:
+ mov r8d,[rbx+rdx*4+D_CODES-4]
+ lea r9,[rip+.Ldict_kana_compose]
+ mov ecx,DICT_KANA_COMPOSE_COUNT
+.D_append_compose_next:
+ cmp r8d,[r9]
+ jne .D_append_compose_advance
+ cmp eax,[r9+4]
+ jne .D_append_compose_advance
+ mov eax,[r9+8]
+ mov [rbx+rdx*4+D_CODES-4],eax
+ xor eax,eax
+ ret
+.D_append_compose_advance:
+ add r9,12
+ loop .D_append_compose_next
+.D_append_plain:
+ cmp rdx,4096
+ jae .D_append_bad
+ mov [rbx+rdx*4+D_CODES],eax
+ mov rax,[rbx+D_ORIGPOS]
+ mov [rbx+rdx*8+D_MAP],rax
+ inc qword ptr [rbx+D_NORM]
+ xor eax,eax
+ ret
+.D_append_bad:
+ mov rax,-28
+ ret
+
+.global ui_cjk_boundaries
+# UTF8 CJK range,len,out16B(start,end) spans,cap ->count/-1fallback/-28capacity.
+# Cap0 measures count. Source uses dictionary only for <=1500 original scalars.
+ui_cjk_boundaries:
+ push rbx
+ push rbp
+ push r12
+ push r13
+ push r14
+ push r15
+ sub rsp,D_FRAME
+ mov rbx,rsp
+ mov [rbx+D_RAW],rdi
+ mov [rbx+D_RAWLEN],rsi
+ mov [rbx+D_OUT],rdx
+ mov [rbx+D_CAP],rcx
+ mov qword ptr [rbx+D_NORM],0
+ mov qword ptr [rbx+D_ORIGCOUNT],0
+ mov qword ptr [rbx+D_ORIGPOS],0
+ mov qword ptr [rbx+D_NEXT],0
+ cmp rsi,6000
+ ja .D_bound_fallback
+ test rsi,rsi
+ jz .D_bound_empty
+ test rdi,rdi
+ jz .D_bound_fallback
+ test rcx,rcx
+ jz .D_normalize_next
+ test rdx,rdx
+ jz .D_bound_fallback
+.D_normalize_next:
+ mov rdx,[rbx+D_NEXT]
+ cmp rdx,[rbx+D_RAWLEN]
+ jae .D_normalize_done
+ mov [rbx+D_ORIGPOS],rdx
+ mov rdi,[rbx+D_RAW]
+ mov rsi,[rbx+D_RAWLEN]
+ call .Ldecode
+ mov [rbx+D_NEXT],rdx
+ mov r12d,eax
+ call .D_is_cjk
+ test eax,eax
+ jz .D_bound_fallback
+ inc qword ptr [rbx+D_ORIGCOUNT]
+ cmp qword ptr [rbx+D_ORIGCOUNT],1500
+ ja .D_bound_fallback
+ mov eax,r12d
+ call .D_nfkc_lookup
+ test rdi,rdi
+ jz .D_normalize_plain
+ mov r13,rdi
+ mov r14d,ecx
+.D_normalize_expansion:
+ mov eax,[r13]
+ call .D_append_normalized
+ test rax,rax
+ js .D_bound_fallback
+ add r13,4
+ dec r14
+ jnz .D_normalize_expansion
+ jmp .D_normalize_next
+.D_normalize_plain:
+ mov eax,r12d
+ call .D_append_normalized
+ test rax,rax
+ js .D_bound_fallback
+ jmp .D_normalize_next
+.D_normalize_done:
+ mov r12,[rbx+D_NORM]
+ mov rax,[rbx+D_RAWLEN]
+ mov [rbx+r12*8+D_MAP],rax
+ lea rdi,[rbx+D_COST]
+ lea rcx,[r12+1]
+ mov eax,-1
+ rep stosd
+ lea rdi,[rbx+D_PREV]
+ lea rcx,[r12+1]
+ rep stosd
+ lea rdi,[rbx+D_BREAK]
+ lea rcx,[r12+1]
+ xor eax,eax
+ rep stosb
+ mov dword ptr [rbx+D_COST],0
+ xor r13d,r13d
+.D_dp_next:
+ cmp r13,r12
+ jae .D_dp_done
+ cmp dword ptr [rbx+r13*4+D_COST],-1
+ je .D_dp_advance
+ lea rdi,[rbx+r13*4+D_CODES]
+ mov rsi,r12
+ sub rsi,r13
+ lea rdx,[rbx+D_MATCH]
+ call .D_matches
+ cmp dword ptr [rbx+D_MATCH],-1
+ jne .D_dp_candidates
+ mov dword ptr [rbx+D_MATCH],255
+.D_dp_candidates:
+ xor r14d,r14d
+.D_dp_candidate:
+ cmp r14,20
+ jae .D_dp_katakana
+ lea r15,[r13+r14+1]
+ cmp r15,r12
+ ja .D_dp_katakana
+ mov eax,[rbx+r14*4+D_MATCH]
+ cmp eax,-1
+ je .D_dp_candidate_next
+ add eax,[rbx+r13*4+D_COST]
+ cmp eax,[rbx+r15*4+D_COST]
+ jae .D_dp_candidate_next
+ mov [rbx+r15*4+D_COST],eax
+ mov [rbx+r15*4+D_PREV],r13d
+.D_dp_candidate_next:
+ inc r14
+ jmp .D_dp_candidate
+.D_dp_katakana:
+ mov eax,[rbx+r13*4+D_CODES]
+ call .D_is_katakana
+ test eax,eax
+ jz .D_dp_advance
+ test r13,r13
+ jz .D_dp_kata_run
+ mov eax,[rbx+r13*4+D_CODES-4]
+ call .D_is_katakana
+ test eax,eax
+ jnz .D_dp_advance
+.D_dp_kata_run:
+ mov r14d,1
+.D_dp_kata_next:
+ cmp r14,20
+ jae .D_dp_advance
+ lea r15,[r13+r14]
+ cmp r15,r12
+ jae .D_dp_kata_cost
+ mov eax,[rbx+r15*4+D_CODES]
+ call .D_is_katakana
+ test eax,eax
+ jz .D_dp_kata_cost
+ inc r14
+ jmp .D_dp_kata_next
+.D_dp_kata_cost:
+ mov eax,8192
+ cmp r14,8
+ ja .D_dp_kata_relax
+ lea rdx,[rip+.Ldict_katakana_cost]
+ mov eax,[rdx+r14*4]
+.D_dp_kata_relax:
+ add eax,[rbx+r13*4+D_COST]
+ lea r15,[r13+r14]
+ cmp eax,[rbx+r15*4+D_COST]
+ jae .D_dp_advance
+ mov [rbx+r15*4+D_COST],eax
+ mov [rbx+r15*4+D_PREV],r13d
+.D_dp_advance:
+ inc r13
+ jmp .D_dp_next
+.D_dp_done:
+ mov r13,r12
+.D_dp_trace:
+ mov byte ptr [rbx+r13+D_BREAK],1
+ test r13,r13
+ jz .D_dp_spans
+ mov eax,[rbx+r13*4+D_PREV]
+ cmp eax,-1
+ je .D_bound_fallback
+ cmp rax,r13
+ jae .D_bound_fallback
+ mov r13,rax
+ jmp .D_dp_trace
+.D_dp_spans:
+ mov r13d,1
+ xor r14d,r14d
+ xor r15d,r15d
+.D_dp_span_next:
+ cmp r13,r12
+ ja .D_dp_spans_done
+ cmp byte ptr [rbx+r13+D_BREAK],0
+ je .D_dp_span_advance
+ mov rbp,[rbx+r13*8+D_MAP]
+ cmp rbp,r14
+ jbe .D_dp_span_advance
+ cmp qword ptr [rbx+D_CAP],0
+ je .D_dp_span_count
+ cmp r15,[rbx+D_CAP]
+ jae .D_bound_cap
+ mov rax,r15
+ shl rax,4
+ add rax,[rbx+D_OUT]
+ mov [rax],r14
+ mov [rax+8],rbp
+.D_dp_span_count:
+ inc r15
+ mov r14,rbp
+.D_dp_span_advance:
+ inc r13
+ jmp .D_dp_span_next
+.D_dp_spans_done:
+ mov rax,r15
+ jmp .D_bound_return
+.D_bound_empty:
+ xor eax,eax
+ jmp .D_bound_return
+.D_bound_cap:
+ mov rax,-28
+ jmp .D_bound_return
+.D_bound_fallback:
+ mov rax,-1
+.D_bound_return:
+ add rsp,D_FRAME
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbp
+ pop rbx
+ ret
+.section .rodata
+.Ldict_katakana_cost: .long 8192,984,408,240,204,252,300,372,480
+
+.text
+# Context,direction0left1right ->byte boundary/-1 use ordinary Unicode fallback.
+# The source disables dictionary segmentation above1500 scalars in this line.
+.D_navigation:
+ push rbx
+ push r12
+ push r13
+ push r14
+ push r15
+ sub rsp,24064
+ mov r12,rdi
+ mov ebx,esi
+ mov r13,[r12+C_CUR]
+ mov [rsp+24008],r13
+ mov r14,r13
+ mov r15,r13
+ mov rdi,[r12+C_BUF]
+.D_nav_line_left:
+ test r14,r14
+ jz .D_nav_line_right
+ cmp byte ptr [rdi+r14-1],10
+ je .D_nav_line_right
+ dec r14
+ jmp .D_nav_line_left
+.D_nav_line_right:
+ cmp r15,[r12+C_LEN]
+ jae .D_nav_line_ready
+ cmp byte ptr [rdi+r15],10
+ je .D_nav_line_ready
+ inc r15
+ jmp .D_nav_line_right
+.D_nav_line_ready:
+ mov [rsp+24032],r14
+ mov [rsp+24040],r15
+ test ebx,ebx
+ jnz .D_nav_cross_right
+ cmp r13,r14
+ jne .D_nav_segment_line
+ mov rax,r13
+ test rax,rax
+ jz .D_nav_return
+ dec rax
+ jmp .D_nav_return
+.D_nav_cross_right:
+ cmp r13,r15
+ jne .D_nav_segment_line
+ mov rax,r13
+ cmp rax,[r12+C_LEN]
+ jae .D_nav_return
+ inc rax
+ jmp .D_nav_return
+.D_nav_segment_line:
+ mov rdi,[r12+C_BUF]
+ add rdi,r14
+ mov rsi,r15
+ sub rsi,r14
+ mov rdx,rsp
+ mov ecx,1500
+ call ui_word_boundaries
+ test rax,rax
+ js .D_nav_fallback
+ mov r15,rax
+ sub r13,r14
+ mov [rsp+24008],r13
+ test ebx,ebx
+ jnz .D_nav_find_right_start
+ xor ecx,ecx
+ xor r8d,r8d
+ mov r9,-1
+.D_nav_find_left:
+ cmp rcx,r15
+ jae .D_nav_left_gap
+ mov rax,rcx
+ shl rax,4
+ mov rdx,[rsp+rax]
+ cmp rdx,r13
+ je .D_nav_left_found
+ ja .D_nav_left_gap
+ mov r8,rdx
+ mov r9,[rsp+rax+8]
+ cmp r13,r9
+ jbe .D_nav_left_found
+ inc rcx
+ jmp .D_nav_find_left
+.D_nav_left_gap:
+ # Source fallback in whitespace skips punctuation, then a strict-script word.
+ mov r13,[r12+C_CUR]
+.D_nav_left_nonword:
+ cmp r13,r14
+ jbe .D_nav_left_absolute
+ mov rax,r13
+ call .Lprev_scalar
+ mov [rsp+24016],rax
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ mov rdx,rax
+ call .Ldecode
+ call .W_strict_class
+ test eax,eax
+ jnz .D_nav_left_strict_first
+ mov r13,[rsp+24016]
+ jmp .D_nav_left_nonword
+.D_nav_left_strict_first:
+ mov ebx,eax
+ mov r13,[rsp+24016]
+.D_nav_left_strict:
+ cmp r13,r14
+ jbe .D_nav_left_absolute
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ mov rdx,r13
+ call .Ldecode
+ call .W_source_is_cjk
+ mov [rsp+24056],rax
+ mov rax,r13
+ call .Lprev_scalar
+ mov [rsp+24016],rax
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ mov rdx,rax
+ call .Ldecode
+ call .W_strict_class
+ cmp eax,ebx
+ jne .D_nav_left_absolute
+ cmp qword ptr [rsp+24056],0
+ je .D_nav_left_strict_take
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ mov rdx,[rsp+24016]
+ call .Ldecode
+ call .W_source_is_cjk
+ test eax,eax
+ jnz .D_nav_left_absolute
+.D_nav_left_strict_take:
+ mov r13,[rsp+24016]
+ jmp .D_nav_left_strict
+.D_nav_left_absolute:
+ mov rax,r13
+ jmp .D_nav_return
+.D_nav_left_found:
+ lea rax,[r14+r8]
+ jmp .D_nav_return
+.D_nav_find_right_start:
+ xor r13d,r13d
+.D_nav_find_right:
+ cmp r13,r15
+ jae .D_nav_right_line_end
+ mov rax,r13
+ shl rax,4
+ mov rcx,[rsp+rax]
+ mov rdx,[rsp+rax+8]
+ mov [rsp+24016],rcx
+ mov [rsp+24024],rdx
+ mov r8,[rsp+24008]
+ cmp r8,rdx
+ jae .D_nav_find_right_next
+ cmp r8,rcx
+ jae .D_nav_right_containing
+ # Starting in whitespace: the source skips nonword spans and consumes the
+ # first next word, rather than stopping before that word.
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ lea rdx,[r14+rcx]
+ call .Ldecode
+ call .Lprops
+ test eax,512
+ jz .D_nav_find_right_next
+ shr eax,16
+ and eax,31
+ cmp eax,4
+ je .D_nav_find_right_next
+.D_nav_right_found:
+ add r14,[rsp+24024]
+ jmp .D_nav_success
+.D_nav_right_containing:
+ add r14,[rsp+24024]
+ jmp .D_nav_skip_whitespace
+.D_nav_find_right_next:
+ inc r13
+ jmp .D_nav_find_right
+.D_nav_right_line_end:
+ mov rax,[rsp+24040]
+ jmp .D_nav_return
+.D_nav_skip_whitespace:
+ cmp r14,[rsp+24040]
+ jae .D_nav_success
+ mov rdx,r14
+ call .Lword_class
+ test eax,eax
+ jnz .D_nav_success
+ mov rdi,[r12+C_BUF]
+ mov rsi,[r12+C_LEN]
+ mov rdx,r14
+ call .Ldecode
+ mov r14,rdx
+ jmp .D_nav_skip_whitespace
+.D_nav_success:
+ mov rax,r14
+ jmp .D_nav_return
+.D_nav_fallback:
+ mov rax,-1
+.D_nav_return:
+ add rsp,24064
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbx
+ ret
+
+# Unicode17 UAX29 word boundaries, then ICU CJK dictionary refinement.
+# Source word navigation splits literal '.' and omits whitespace-only segments.
+.equ W_RAW,0
+.equ W_LEN,8
+.equ W_OUT,16
+.equ W_CAP,24
+.equ W_N,32
+.equ W_INDEX,40
+.equ W_AA,48
+.equ W_BB,56
+.equ W_CJSTART,64
+.equ W_CJEND,72
+.equ W_CP,128
+.equ W_PROPS,W_CP+1501*4
+.equ W_MAP,W_PROPS+1501*4
+.equ W_FLAGS,W_MAP+1502*8
+.equ W_TEMP,((W_FLAGS+1502+15)/16)*16
+.equ W_FRAME,W_TEMP+24000+8
+.text
+.W_previous_significant:
+ test rax,rax
+ js .W_significant_none
+ mov rdx,rax
+ mov eax,[rbx+rax*4+W_PROPS]
+ shr eax,16
+ and eax,31
+ cmp eax,4
+ je .W_previous_skip
+ cmp eax,5
+ je .W_previous_skip
+ cmp eax,7
+ jne .W_significant_return
+.W_previous_skip:
+ lea rax,[rdx-1]
+ jmp .W_previous_significant
+.W_next_significant:
+ cmp rax,[rbx+W_N]
+ jae .W_significant_none
+ mov rdx,rax
+ mov eax,[rbx+rax*4+W_PROPS]
+ shr eax,16
+ and eax,31
+ cmp eax,4
+ je .W_next_skip
+ cmp eax,5
+ je .W_next_skip
+ cmp eax,7
+ jne .W_significant_return
+.W_next_skip:
+ lea rax,[rdx+1]
+ jmp .W_next_significant
+.W_significant_none:
+ xor eax,eax
+ mov rdx,-1
+.W_significant_return:
+ ret
+# W_INDEX is a boundary before a scalar. EAX1joins/EAX0breaks.
+.W_join:
+ push rbp
+ push r12
+ push r13
+ push r14
+ push r15
+ mov r12,[rbx+W_INDEX]
+ mov r14d,[rbx+r12*4+W_PROPS-4]
+ shr r14d,16
+ and r14d,31
+ mov r15d,[rbx+r12*4+W_PROPS]
+ shr r15d,16
+ and r15d,31
+ cmp r14d,1
+ jne .W_join_newline
+ cmp r15d,2
+ je .W_join_yes
+.W_join_newline:
+ cmp r14d,1
+ jb .W_join_right_newline
+ cmp r14d,3
+ jbe .W_join_no
+.W_join_right_newline:
+ cmp r15d,1
+ jb .W_join_emoji
+ cmp r15d,3
+ jbe .W_join_no
+.W_join_emoji:
+ cmp r14d,5
+ jne .W_join_spaces
+ test dword ptr [rbx+r12*4+W_PROPS],16
+ jnz .W_join_yes
+.W_join_spaces:
+ cmp r14d,18
+ jne .W_join_ignored
+ cmp r15d,18
+ je .W_join_yes
+.W_join_ignored:
+ cmp r15d,4
+ je .W_join_yes
+ cmp r15d,5
+ je .W_join_yes
+ cmp r15d,7
+ je .W_join_yes
+ lea rax,[r12-1]
+ call .W_previous_significant
+ test rax,rax
+ jz .W_join_no
+ mov r14d,eax
+ mov r13,rdx
+ cmp dword ptr [rbx+r12*4+W_CP],46
+ je .W_join_no
+ cmp dword ptr [rbx+r13*4+W_CP],46
+ je .W_join_no
+ lea rax,[r13-1]
+ call .W_previous_significant
+ mov [rbx+W_AA],rax
+ lea rax,[r12+1]
+ call .W_next_significant
+ mov [rbx+W_BB],rax
+ cmp r14d,9
+ jne .W_join_ah_test
+ cmp r15d,11
+ je .W_join_yes
+ cmp r15d,12
+ jne .W_join_ah_test
+ cmp qword ptr [rbx+W_BB],9
+ je .W_join_yes
+.W_join_ah_test:
+ cmp r14d,9
+ je .W_join_after_ah
+ cmp r14d,10
+ je .W_join_after_ah
+ cmp r14d,16
+ je .W_join_after_numeric
+ cmp r14d,8
+ je .W_join_after_katakana
+ cmp r14d,17
+ je .W_join_after_extendnum
+ cmp r14d,6
+ je .W_join_regional
+ jmp .W_join_mid_left
+.W_join_after_ah:
+ cmp r15d,9
+ je .W_join_yes
+ cmp r15d,10
+ je .W_join_yes
+ cmp r15d,16
+ je .W_join_yes
+ cmp r15d,17
+ je .W_join_yes
+ cmp r15d,11
+ je .W_join_mid_right_ah
+ cmp r15d,13
+ je .W_join_mid_right_ah
+ cmp r15d,14
+ jne .W_join_no
+.W_join_mid_right_ah:
+ cmp qword ptr [rbx+W_BB],9
+ je .W_join_yes
+ cmp qword ptr [rbx+W_BB],10
+ je .W_join_yes
+ jmp .W_join_no
+.W_join_after_numeric:
+ cmp r15d,9
+ je .W_join_yes
+ cmp r15d,10
+ je .W_join_yes
+ cmp r15d,16
+ je .W_join_yes
+ cmp r15d,17
+ je .W_join_yes
+ cmp r15d,11
+ je .W_join_mid_right_numeric
+ cmp r15d,13
+ je .W_join_mid_right_numeric
+ cmp r15d,15
+ jne .W_join_no
+.W_join_mid_right_numeric:
+ cmp qword ptr [rbx+W_BB],16
+ je .W_join_yes
+ jmp .W_join_no
+.W_join_after_katakana:
+ cmp r15d,8
+ je .W_join_yes
+ cmp r15d,17
+ je .W_join_yes
+ jmp .W_join_no
+.W_join_after_extendnum:
+ cmp r15d,9
+ je .W_join_yes
+ cmp r15d,10
+ je .W_join_yes
+ cmp r15d,16
+ je .W_join_yes
+ cmp r15d,8
+ je .W_join_yes
+ cmp r15d,17
+ je .W_join_yes
+ jmp .W_join_no
+.W_join_mid_left:
+ cmp r14d,12
+ jne .W_join_mid_ah_left
+ cmp r15d,9
+ jne .W_join_no
+ cmp qword ptr [rbx+W_AA],9
+ je .W_join_yes
+ jmp .W_join_no
+.W_join_mid_ah_left:
+ cmp r15d,9
+ je .W_join_mid_left_ah_check
+ cmp r15d,10
+ jne .W_join_mid_numeric_left
+.W_join_mid_left_ah_check:
+ cmp r14d,11
+ je .W_join_mid_left_ah_previous
+ cmp r14d,13
+ je .W_join_mid_left_ah_previous
+ cmp r14d,14
+ jne .W_join_no
+.W_join_mid_left_ah_previous:
+ cmp qword ptr [rbx+W_AA],9
+ je .W_join_yes
+ cmp qword ptr [rbx+W_AA],10
+ je .W_join_yes
+ jmp .W_join_no
+.W_join_mid_numeric_left:
+ cmp r15d,16
+ jne .W_join_no
+ cmp r14d,11
+ je .W_join_mid_left_numeric_previous
+ cmp r14d,13
+ je .W_join_mid_left_numeric_previous
+ cmp r14d,15
+ jne .W_join_no
+.W_join_mid_left_numeric_previous:
+ cmp qword ptr [rbx+W_AA],16
+ je .W_join_yes
+ jmp .W_join_no
+.W_join_regional:
+ cmp r15d,6
+ jne .W_join_no
+ xor ebp,ebp
+ mov rax,r13
+.W_join_regional_count:
+ call .W_previous_significant
+ cmp eax,6
+ jne .W_join_regional_ready
+ inc rbp
+ lea rax,[rdx-1]
+ jmp .W_join_regional_count
+.W_join_regional_ready:
+ test ebp,1
+ jnz .W_join_yes
+.W_join_no:
+ xor eax,eax
+ jmp .W_join_return
+.W_join_yes:
+ mov eax,1
+.W_join_return:
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbp
+ ret
+
+.global ui_word_boundaries
+# UTF8 line,len,out16(start,end),cap ->nonwhite segment count/-1fallback/-28cap.
+ui_word_boundaries:
+ push rbx
+ push rbp
+ push r12
+ push r13
+ push r14
+ push r15
+ sub rsp,W_FRAME
+ mov rbx,rsp
+ mov [rbx+W_RAW],rdi
+ mov [rbx+W_LEN],rsi
+ mov [rbx+W_OUT],rdx
+ mov [rbx+W_CAP],rcx
+ mov qword ptr [rbx+W_N],0
+ cmp rsi,6000
+ ja .W_bound_fallback
+ test rsi,rsi
+ jz .W_bound_empty
+ test rdi,rdi
+ jz .W_bound_fallback
+ xor r12d,r12d
+.W_decode_next:
+ cmp r12,[rbx+W_LEN]
+ jae .W_decode_done
+ mov r13,[rbx+W_N]
+ cmp r13,1500
+ jae .W_bound_fallback
+ mov [rbx+r13*8+W_MAP],r12
+ mov rdi,[rbx+W_RAW]
+ mov rsi,[rbx+W_LEN]
+ mov rdx,r12
+ call .Ldecode
+ mov r12,rdx
+ mov [rbx+r13*4+W_CP],eax
+ call .Lprops
+ mov [rbx+r13*4+W_PROPS],eax
+ inc qword ptr [rbx+W_N]
+ jmp .W_decode_next
+.W_decode_done:
+ mov r12,[rbx+W_N]
+ mov rax,[rbx+W_LEN]
+ mov [rbx+r12*8+W_MAP],rax
+ lea rdi,[rbx+W_FLAGS]
+ lea rcx,[r12+1]
+ mov al,1
+ rep stosb
+ mov qword ptr [rbx+W_INDEX],1
+.W_rules_next:
+ mov rax,[rbx+W_INDEX]
+ cmp rax,r12
+ jae .W_dictionary_start
+ call .W_join
+ test eax,eax
+ jz .W_rules_break
+ mov rax,[rbx+W_INDEX]
+ mov byte ptr [rbx+rax+W_FLAGS],0
+.W_rules_break:
+ inc qword ptr [rbx+W_INDEX]
+ jmp .W_rules_next
+.W_dictionary_start:
+ xor r13d,r13d
+.W_dictionary_next:
+ cmp r13,r12
+ jae .W_output_start
+ mov eax,[rbx+r13*4+W_PROPS]
+ shr eax,21
+ and eax,7
+ test eax,eax
+ jnz .W_complex_start
+ mov eax,[rbx+r13*4+W_CP]
+ call .D_is_cjk
+ test eax,eax
+ jz .W_dictionary_advance
+ mov [rbx+W_CJSTART],r13
+ mov r14,r13
+.W_dictionary_run:
+ inc r14
+ cmp r14,r12
+ jae .W_dictionary_range
+ mov eax,[rbx+r14*4+W_CP]
+ call .D_is_cjk
+ test eax,eax
+ jnz .W_dictionary_run
+.W_dictionary_range:
+ mov [rbx+W_CJEND],r14
+ mov r15,[rbx+r13*8+W_MAP]
+ mov rdi,[rbx+W_RAW]
+ add rdi,r15
+ mov rsi,[rbx+r14*8+W_MAP]
+ sub rsi,r15
+ lea rdx,[rbx+W_TEMP]
+ mov ecx,1500
+ call ui_cjk_boundaries
+ jmp .W_dictionary_apply
+.W_complex_start:
+ mov [rbx+W_AA],rax
+ mov [rbx+W_CJSTART],r13
+ mov r14,r13
+.W_complex_run:
+ inc r14
+ cmp r14,r12
+ jae .W_complex_range
+ mov eax,[rbx+r14*4+W_PROPS]
+ shr eax,21
+ and eax,7
+ cmp rax,[rbx+W_AA]
+ je .W_complex_run
+.W_complex_range:
+ mov [rbx+W_CJEND],r14
+ mov r15,[rbx+r13*8+W_MAP]
+ mov rdi,[rbx+W_RAW]
+ add rdi,r15
+ mov rsi,[rbx+r14*8+W_MAP]
+ sub rsi,r15
+ mov rdx,[rbx+W_AA]
+ lea rcx,[rbx+W_TEMP]
+ mov r8d,1500
+ call ui_complex_boundaries
+.W_dictionary_apply:
+ test rax,rax
+ jle .W_dictionary_range_done
+ mov [rbx+W_INDEX],rax
+ lea rdi,[rbx+r13+W_FLAGS+1]
+ mov rcx,r14
+ sub rcx,r13
+ dec rcx
+ xor eax,eax
+ rep stosb
+ xor ebp,ebp
+.W_dictionary_break_next:
+ cmp rbp,[rbx+W_INDEX]
+ jae .W_dictionary_range_done
+ mov rax,rbp
+ shl rax,4
+ mov r15,[rbx+rax+W_TEMP+8]
+ mov rax,[rbx+W_CJSTART]
+ add r15,[rbx+rax*8+W_MAP]
+ xor ecx,ecx
+ lea r8,[r12+1]
+.W_dictionary_boundary_search:
+ cmp rcx,r8
+ jae .W_dictionary_break_advance
+ lea rdx,[rcx+r8]
+ shr rdx,1
+ cmp r15,[rbx+rdx*8+W_MAP]
+ jb .W_dictionary_boundary_lower
+ ja .W_dictionary_boundary_upper
+ cmp rdx,[rbx+W_CJEND]
+ je .W_dictionary_break_advance
+ mov byte ptr [rbx+rdx+W_FLAGS],1
+ jmp .W_dictionary_break_advance
+.W_dictionary_boundary_lower:
+ mov r8,rdx
+ jmp .W_dictionary_boundary_search
+.W_dictionary_boundary_upper:
+ lea rcx,[rdx+1]
+ jmp .W_dictionary_boundary_search
+.W_dictionary_break_advance:
+ inc rbp
+ jmp .W_dictionary_break_next
+.W_dictionary_range_done:
+ mov r13,[rbx+W_CJEND]
+ jmp .W_dictionary_next
+.W_dictionary_advance:
+ inc r13
+ jmp .W_dictionary_next
+.W_output_start:
+ xor r13d,r13d
+ mov r14d,1
+ xor r15d,r15d
+.W_output_next:
+ cmp r14,r12
+ ja .W_output_done
+ cmp byte ptr [rbx+r14+W_FLAGS],0
+ je .W_output_advance
+ mov rbp,r13
+.W_output_whitespace:
+ cmp rbp,r14
+ jae .W_output_skip
+ test dword ptr [rbx+rbp*4+W_PROPS],1024
+ jnz .W_output_white_advance
+ cmp dword ptr [rbx+rbp*4+W_CP],0xfeff
+ jne .W_output_segment
+.W_output_white_advance:
+ inc rbp
+ jmp .W_output_whitespace
+.W_output_segment:
+ cmp qword ptr [rbx+W_CAP],0
+ je .W_output_count
+ cmp r15,[rbx+W_CAP]
+ jae .W_bound_cap
+ mov rdx,[rbx+W_OUT]
+ test rdx,rdx
+ jz .W_bound_fallback
+ mov rax,r15
+ shl rax,4
+ add rdx,rax
+ mov rax,[rbx+r13*8+W_MAP]
+ mov [rdx],rax
+ mov rax,[rbx+r14*8+W_MAP]
+ mov [rdx+8],rax
+.W_output_count:
+ inc r15
+.W_output_skip:
+ mov r13,r14
+.W_output_advance:
+ inc r14
+ jmp .W_output_next
+.W_output_done:
+ mov rax,r15
+ jmp .W_bound_return
+.W_bound_cap:
+ mov rax,-28
+ jmp .W_bound_return
+.W_bound_fallback:
+ mov rax,-1
+ jmp .W_bound_return
+.W_bound_empty:
+ xor eax,eax
+.W_bound_return:
+ add rsp,W_FRAME
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbp
+ pop rbx
+ ret
+
+.text
+# Source isWordCharStrict plus getCharScript's six explicit script categories.
+.W_strict_class:
+ sub rsp,8
+ call .Lprops
+ add rsp,8
+ test eax,512
+ jz .W_strict_no
+ mov edx,eax
+ shr edx,16
+ and edx,31
+ cmp edx,4
+ je .W_strict_no
+ and eax,0xf800
+ cmp eax,1<<11
+ je .W_strict_yes
+ cmp eax,3<<11
+ je .W_strict_yes
+ cmp eax,5<<11
+ je .W_strict_yes
+ cmp eax,8<<11
+ je .W_strict_yes
+ cmp eax,9<<11
+ je .W_strict_yes
+ cmp eax,10<<11
+ je .W_strict_yes
+ xor eax,eax
+.W_strict_yes:
+ or eax,1
+ ret
+.W_strict_no:
+ xor eax,eax
+ ret
+
+.text
+.W_source_is_cjk:
+ cmp eax,0x3400
+ jb .W_source_cjk_kana
+ cmp eax,0x4dbf
+ jbe .D_bool_yes
+ cmp eax,0x4e00
+ jb .D_bool_no
+ cmp eax,0x9fff
+ jbe .D_bool_yes
+ cmp eax,0xac00
+ jb .D_bool_no
+ cmp eax,0xd7af
+ jbe .D_bool_yes
+ cmp eax,0xf900
+ jb .D_bool_no
+ cmp eax,0xfaff
+ jbe .D_bool_yes
+ jmp .D_bool_no
+.W_source_cjk_kana:
+ cmp eax,0x3040
+ jb .D_bool_no
+ cmp eax,0x30ff
+ jbe .D_bool_yes
+ jmp .D_bool_no
+
+# ICU BytesTrie for Thai/Lao/Myanmar/Khmer dictionaries. Values are only word
+# terminals; the source PossibleWord algorithm also uses nonterminal prefixes.
+.text
+# rdi after lead,EAX shifted lead ->EAXvalue,RDI after encoded value.
+.B_value:
+ cmp eax,0x51
+ jb .B_value_one
+ cmp eax,0x6c
+ jb .B_value_two
+ cmp eax,0x7e
+ jb .B_value_three
+ cmp eax,0x7e
+ je .B_value_four
+ movzx eax,byte ptr [rdi]
+ shl eax,24
+ movzx edx,byte ptr [rdi+1]
+ shl edx,16
+ or eax,edx
+ movzx edx,byte ptr [rdi+2]
+ shl edx,8
+ or eax,edx
+ movzx edx,byte ptr [rdi+3]
+ or eax,edx
+ add rdi,4
+ ret
+.B_value_one:
+ sub eax,0x10
+ ret
+.B_value_two:
+ sub eax,0x51
+ shl eax,8
+ movzx edx,byte ptr [rdi]
+ or eax,edx
+ inc rdi
+ ret
+.B_value_three:
+ sub eax,0x6c
+ shl eax,16
+ movzx edx,byte ptr [rdi]
+ shl edx,8
+ or eax,edx
+ movzx edx,byte ptr [rdi+1]
+ or eax,edx
+ add rdi,2
+ ret
+.B_value_four:
+ movzx eax,byte ptr [rdi]
+ shl eax,16
+ movzx edx,byte ptr [rdi+1]
+ shl edx,8
+ or eax,edx
+ movzx edx,byte ptr [rdi+2]
+ or eax,edx
+ add rdi,3
+ ret
+# rdi delta lead ->EAXdelta,RDI after encoded delta.
+.B_delta:
+ movzx eax,byte ptr [rdi]
+ inc rdi
+ cmp eax,0xc0
+ jb .B_delta_return
+ cmp eax,0xf0
+ jb .B_delta_two
+ cmp eax,0xfe
+ jb .B_delta_three
+ cmp eax,0xfe
+ je .B_value_four
+ mov eax,0x7f
+ jmp .B_value
+.B_delta_two:
+ sub eax,0xc0
+ shl eax,8
+ movzx edx,byte ptr [rdi]
+ or eax,edx
+ inc rdi
+ ret
+.B_delta_three:
+ sub eax,0xf0
+ shl eax,16
+ movzx edx,byte ptr [rdi]
+ shl edx,8
+ or eax,edx
+ movzx edx,byte ptr [rdi+1]
+ or eax,edx
+ add rdi,2
+.B_delta_return:
+ ret
+# State(pos*,remaining),byte ->0none/1prefix/2terminal/3final terminal.
+.B_step:
+ push rbx
+ push r12
+ push r13
+ mov r12,rdi
+ mov r13d,esi
+ mov rbx,[r12]
+ test rbx,rbx
+ jz .B_step_no
+ mov rcx,[r12+8]
+ test rcx,rcx
+ js .B_step_node
+ movzx eax,byte ptr [rbx]
+ cmp eax,r13d
+ jne .B_step_no
+ inc rbx
+ dec rcx
+ mov [r12+8],rcx
+ jmp .B_step_current
+.B_step_node:
+ movzx eax,byte ptr [rbx]
+ inc rbx
+ cmp eax,0x10
+ jb .B_step_branch
+ cmp eax,0x20
+ jb .B_step_linear
+ test eax,1
+ jnz .B_step_no
+ mov rdi,rbx
+ shr eax,1
+ call .B_value
+ mov rbx,rdi
+ jmp .B_step_node
+.B_step_linear:
+ sub eax,0x10
+ dec eax
+ movsxd rcx,eax
+ mov [r12+8],rcx
+ movzx eax,byte ptr [rbx]
+ cmp eax,r13d
+ jne .B_step_no
+ inc rbx
+ jmp .B_step_current
+.B_step_branch:
+ mov r10d,eax
+ test r10d,r10d
+ jnz .B_step_length_ready
+ movzx r10d,byte ptr [rbx]
+ inc rbx
+.B_step_length_ready:
+ inc r10d
+.B_step_binary:
+ cmp r10d,5
+ jbe .B_step_branch_linear
+ movzx eax,byte ptr [rbx]
+ inc rbx
+ xor r9d,r9d
+ cmp r13d,eax
+ setb r9b
+ mov rdi,rbx
+ call .B_delta
+ mov rbx,rdi
+ mov ecx,r10d
+ shr ecx,1
+ test r9d,r9d
+ jz .B_step_binary_right
+ mov r10d,ecx
+ add rbx,rax
+ jmp .B_step_binary
+.B_step_binary_right:
+ sub r10d,ecx
+ jmp .B_step_binary
+.B_step_branch_linear:
+ cmp r10d,1
+ je .B_step_branch_last
+ movzx eax,byte ptr [rbx]
+ inc rbx
+ cmp eax,r13d
+ je .B_step_branch_found
+ movzx eax,byte ptr [rbx]
+ inc rbx
+ shr eax,1
+ mov rdi,rbx
+ call .B_value
+ mov rbx,rdi
+ dec r10d
+ jmp .B_step_branch_linear
+.B_step_branch_found:
+ movzx eax,byte ptr [rbx]
+ test eax,1
+ jnz .B_step_branch_value
+ inc rbx
+ shr eax,1
+ mov rdi,rbx
+ call .B_value
+ lea rbx,[rdi+rax]
+.B_step_branch_value:
+ mov qword ptr [r12+8],-1
+ jmp .B_step_current
+.B_step_branch_last:
+ movzx eax,byte ptr [rbx]
+ inc rbx
+ cmp eax,r13d
+ jne .B_step_no
+ mov qword ptr [r12+8],-1
+.B_step_current:
+ mov [r12],rbx
+ cmp qword ptr [r12+8],0
+ jge .B_step_prefix
+ movzx eax,byte ptr [rbx]
+ cmp eax,0x20
+ jb .B_step_prefix
+ and eax,1
+ add eax,2
+ jmp .B_step_return
+.B_step_prefix:
+ mov eax,1
+ jmp .B_step_return
+.B_step_no:
+ mov qword ptr [r12],0
+ xor eax,eax
+.B_step_return:
+ pop r13
+ pop r12
+ pop rbx
+ ret
+.section .rodata
+.Ldictionary_thai: .incbin "ui_thai_icu78.bin"
+.Ldictionary_lao: .incbin "ui_lao_icu78.bin"
+.Ldictionary_burmese: .incbin "ui_burmese_icu78.bin"
+.Ldictionary_khmer: .incbin "ui_khmer_icu78.bin"
+
+# Exact ICU PossibleWord three-word lookahead shared by four SA scripts.
+.equ S_RAW,0
+.equ S_RAWLEN,8
+.equ S_TYPE,16
+.equ S_OUT,24
+.equ S_CAP,32
+.equ S_N,40
+.equ S_POS,48
+.equ S_FOUND,56
+.equ S_CURRENT,64
+.equ S_WORDLEN,72
+.equ S_CHARS,80
+.equ S_TRIE,88
+.equ S_OFFSET,96
+.equ S_SEL0,104
+.equ S_SEL1,112
+.equ S_SEL2,120
+.equ S_CP,256
+.equ S_PROPS,S_CP+1501*4
+.equ S_MAP,S_PROPS+1501*4
+.equ S_BREAK,S_MAP+1502*8
+.equ S_SLOTS,((S_BREAK+1502+15)/16)*16
+.equ S_FRAME,S_SLOTS+3*256+8
+.text
+# Shared frameRBX; slotptr,startCP ->candidate count, sets S_POS to longest.
+.B_candidates:
+ push rbp
+ push r12
+ push r13
+ push r14
+ push r15
+ sub rsp,16
+ mov r12,rdi
+ mov r13,rsi
+ cmp rsi,[r12]
+ je .B_candidates_ready
+ mov [r12],rsi
+ mov qword ptr [r12+8],0
+ mov qword ptr [r12+16],0
+ mov rax,[rbx+S_TRIE]
+ mov [rsp],rax
+ mov qword ptr [rsp+8],-1
+ mov r14,r13
+.B_candidates_match:
+ cmp r14,[rbx+S_N]
+ jae .B_candidates_ready
+ mov esi,[rbx+r14*4+S_CP]
+ cmp esi,0x200d
+ je .B_transform_zwj
+ cmp esi,0x200c
+ je .B_transform_zwnj
+ sub esi,[rbx+S_OFFSET]
+ cmp esi,0xfd
+ ja .B_transform_zwj
+ jmp .B_candidates_step
+.B_transform_zwj:
+ mov esi,255
+ jmp .B_candidates_step
+.B_transform_zwnj:
+ mov esi,254
+.B_candidates_step:
+ mov rdi,rsp
+ call .B_step
+ lea rdx,[r14+1]
+ sub rdx,r13
+ mov [r12+16],rdx
+ test eax,eax
+ jz .B_candidates_ready
+ cmp eax,1
+ je .B_candidates_continue
+ mov rcx,[r12+8]
+ cmp rcx,20
+ jae .B_candidates_terminal_ready
+ mov [r12+rcx*8+40],rdx
+ inc qword ptr [r12+8]
+.B_candidates_terminal_ready:
+ cmp eax,3
+ je .B_candidates_ready
+.B_candidates_continue:
+ inc r14
+ jmp .B_candidates_match
+.B_candidates_prefix_fail:
+ lea rdx,[r14+1]
+ sub rdx,r13
+ mov [r12+16],rdx
+.B_candidates_ready:
+ mov rax,[r12+8]
+ mov rcx,rax
+ dec rcx
+ mov [r12+24],rcx
+ mov [r12+32],rcx
+ mov rdx,r13
+ test rax,rax
+ jz .B_candidates_cursor
+ add rdx,[r12+rcx*8+40]
+.B_candidates_cursor:
+ mov [rbx+S_POS],rdx
+ add rsp,16
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbp
+ ret
+.B_backup:
+ mov rcx,[rdi+24]
+ test rcx,rcx
+ jle .B_backup_none
+ dec rcx
+ mov [rdi+24],rcx
+ mov rax,[rdi]
+ add rax,[rdi+rcx*8+40]
+ mov [rbx+S_POS],rax
+ mov eax,1
+ ret
+.B_backup_none:
+ xor eax,eax
+ ret
+.B_accept:
+ mov rcx,[rdi+32]
+ mov rax,[rdi+rcx*8+40]
+ mov rdx,[rdi]
+ add rdx,rax
+ mov [rbx+S_POS],rdx
+ ret
+.B_mark:
+ mov rax,[rdi+24]
+ mov [rdi+32],rax
+ ret
+.B_slot_for_found:
+ mov rax,[rbx+S_FOUND]
+ xor edx,edx
+ mov ecx,3
+ div rcx
+ shl rdx,8
+ lea rdi,[rbx+rdx+S_SLOTS]
+ ret
+.B_select_slots:
+ sub rsp,8
+ call .B_slot_for_found
+ mov [rbx+S_SEL0],rdi
+ add rdi,256
+ lea rax,[rbx+S_SLOTS+3*256]
+ cmp rdi,rax
+ jb .B_select_slot1
+ lea rdi,[rbx+S_SLOTS]
+.B_select_slot1:
+ mov [rbx+S_SEL1],rdi
+ add rdi,256
+ cmp rdi,rax
+ jb .B_select_slot2
+ lea rdi,[rbx+S_SLOTS]
+.B_select_slot2:
+ mov [rbx+S_SEL2],rdi
+ add rsp,8
+ ret
+
+.global ui_complex_boundaries
+# UTF8 SA range,len,type1Thai2Lao3Myanmar4Khmer,out16pairs,cap ->count/-error.
+ui_complex_boundaries:
+ push rbx
+ push rbp
+ push r12
+ push r13
+ push r14
+ push r15
+ sub rsp,S_FRAME
+ mov rbx,rsp
+ mov [rbx+S_RAW],rdi
+ mov [rbx+S_RAWLEN],rsi
+ mov [rbx+S_TYPE],rdx
+ mov [rbx+S_OUT],rcx
+ mov [rbx+S_CAP],r8
+ mov qword ptr [rbx+S_N],0
+ mov qword ptr [rbx+S_POS],0
+ mov qword ptr [rbx+S_FOUND],0
+ cmp rsi,6000
+ ja .S_fallback
+ cmp edx,1
+ jb .S_fallback
+ cmp edx,4
+ ja .S_fallback
+ lea rax,[rip+.Lcomplex_dictionary_table]
+ dec edx
+ shl edx,4
+ mov rcx,[rax+rdx]
+ add rcx,rax
+ mov [rbx+S_TRIE],rcx
+ mov rcx,[rax+rdx+8]
+ mov [rbx+S_OFFSET],rcx
+ xor r12d,r12d
+.S_decode_next:
+ cmp r12,[rbx+S_RAWLEN]
+ jae .S_decode_done
+ mov r13,[rbx+S_N]
+ cmp r13,1500
+ jae .S_fallback
+ mov [rbx+r13*8+S_MAP],r12
+ mov rdi,[rbx+S_RAW]
+ mov rsi,[rbx+S_RAWLEN]
+ mov rdx,r12
+ call .Ldecode
+ mov r12,rdx
+ mov [rbx+r13*4+S_CP],eax
+ call .Lprops
+ mov [rbx+r13*4+S_PROPS],eax
+ shr eax,21
+ and eax,7
+ cmp rax,[rbx+S_TYPE]
+ jne .S_fallback
+ inc qword ptr [rbx+S_N]
+ jmp .S_decode_next
+.S_decode_done:
+ mov r12,[rbx+S_N]
+ mov rax,[rbx+S_RAWLEN]
+ mov [rbx+r12*8+S_MAP],rax
+ lea rdi,[rbx+S_BREAK]
+ lea rcx,[r12+1]
+ xor eax,eax
+ rep stosb
+ mov byte ptr [rbx+S_BREAK],1
+ mov byte ptr [rbx+r12+S_BREAK],1
+ lea rdi,[rbx+S_SLOTS]
+ mov ecx,3*256/8
+ rep stosq
+ mov qword ptr [rbx+S_SLOTS],-1
+ mov qword ptr [rbx+S_SLOTS+256],-1
+ mov qword ptr [rbx+S_SLOTS+512],-1
+ cmp r12,4
+ jb .S_output_start
+ jne .S_loop
+ cmp qword ptr [rbx+S_TYPE],1
+ je .S_output_start
+.S_loop:
+ mov rax,[rbx+S_POS]
+ cmp rax,[rbx+S_N]
+ jae .S_output_start
+ mov [rbx+S_CURRENT],rax
+ mov qword ptr [rbx+S_WORDLEN],0
+ call .B_select_slots
+ mov rdi,[rbx+S_SEL0]
+ mov rsi,[rbx+S_POS]
+ call .B_candidates
+ cmp eax,1
+ je .S_accept
+ cmp eax,1
+ jbe .S_combine
+ mov rax,[rbx+S_POS]
+ cmp rax,[rbx+S_N]
+ jae .S_accept
+.S_lookahead_first:
+ mov rdi,[rbx+S_SEL1]
+ mov rsi,[rbx+S_POS]
+ call .B_candidates
+ test eax,eax
+ jz .S_lookahead_backup_first
+ mov rdi,[rbx+S_SEL0]
+ call .B_mark
+ mov rax,[rbx+S_POS]
+ cmp rax,[rbx+S_N]
+ jae .S_accept
+.S_lookahead_second:
+ mov rdi,[rbx+S_SEL2]
+ mov rsi,[rbx+S_POS]
+ call .B_candidates
+ test eax,eax
+ jz .S_lookahead_backup_second
+ mov rdi,[rbx+S_SEL0]
+ call .B_mark
+ jmp .S_accept
+.S_lookahead_backup_second:
+ mov rdi,[rbx+S_SEL1]
+ call .B_backup
+ test eax,eax
+ jnz .S_lookahead_second
+.S_lookahead_backup_first:
+ mov rdi,[rbx+S_SEL0]
+ call .B_backup
+ test eax,eax
+ jnz .S_lookahead_first
+.S_accept:
+ mov rdi,[rbx+S_SEL0]
+ call .B_accept
+ mov [rbx+S_WORDLEN],rax
+ inc qword ptr [rbx+S_FOUND]
+.S_combine:
+ mov rax,[rbx+S_POS]
+ cmp rax,[rbx+S_N]
+ jae .S_marks
+ cmp qword ptr [rbx+S_WORDLEN],3
+ jae .S_marks
+ call .B_slot_for_found
+ mov rsi,[rbx+S_POS]
+ call .B_candidates
+ test eax,eax
+ jnz .S_combine_restore
+ cmp qword ptr [rbx+S_WORDLEN],0
+ je .S_unknown_scan_start
+ call .B_slot_for_found
+ cmp qword ptr [rdi+16],3
+ jae .S_combine_restore
+.S_unknown_scan_start:
+ mov qword ptr [rbx+S_CHARS],0
+.S_unknown_scan:
+ mov rax,[rbx+S_POS]
+ mov r13d,[rbx+rax*4+S_PROPS]
+ inc rax
+ mov [rbx+S_POS],rax
+ inc qword ptr [rbx+S_CHARS]
+ cmp rax,[rbx+S_N]
+ jae .S_unknown_scanned
+ test r13d,1<<26
+ jz .S_unknown_scan
+ test dword ptr [rbx+rax*4+S_PROPS],1<<25
+ jz .S_unknown_scan
+ # Source probes a word one slot beyond the current accepted-word count.
+ call .B_slot_for_found
+ add rdi,256
+ lea rax,[rbx+S_SLOTS+3*256]
+ cmp rdi,rax
+ jb .S_unknown_probe_slot
+ lea rdi,[rbx+S_SLOTS]
+.S_unknown_probe_slot:
+ mov rsi,[rbx+S_POS]
+ call .B_candidates
+ mov edx,eax
+ mov rax,[rbx+S_CURRENT]
+ add rax,[rbx+S_WORDLEN]
+ add rax,[rbx+S_CHARS]
+ mov [rbx+S_POS],rax
+ test edx,edx
+ jz .S_unknown_scan
+.S_unknown_scanned:
+ cmp qword ptr [rbx+S_WORDLEN],0
+ jne .S_unknown_add
+ inc qword ptr [rbx+S_FOUND]
+.S_unknown_add:
+ mov rax,[rbx+S_CHARS]
+ add [rbx+S_WORDLEN],rax
+ jmp .S_marks
+.S_combine_restore:
+ mov rax,[rbx+S_CURRENT]
+ add rax,[rbx+S_WORDLEN]
+ mov [rbx+S_POS],rax
+.S_marks:
+ mov rax,[rbx+S_POS]
+ cmp rax,[rbx+S_N]
+ jae .S_suffix
+ test dword ptr [rbx+rax*4+S_PROPS],1<<24
+ jz .S_suffix
+ inc qword ptr [rbx+S_POS]
+ inc qword ptr [rbx+S_WORDLEN]
+ jmp .S_marks
+.S_suffix:
+ cmp qword ptr [rbx+S_TYPE],1
+ jne .S_push
+ mov rax,[rbx+S_POS]
+ cmp rax,[rbx+S_N]
+ jae .S_push
+ cmp qword ptr [rbx+S_WORDLEN],0
+ jle .S_push
+ call .B_slot_for_found
+ mov rsi,[rbx+S_POS]
+ call .B_candidates
+ test eax,eax
+ jnz .S_suffix_restore
+ mov rax,[rbx+S_POS]
+ mov ecx,[rbx+rax*4+S_CP]
+ cmp ecx,0xe2f
+ jne .S_suffix_repeat
+ mov edx,[rbx+rax*4+S_CP-4]
+ cmp edx,0xe2f
+ je .S_push
+ cmp edx,0xe46
+ je .S_push
+ inc rax
+ inc qword ptr [rbx+S_WORDLEN]
+ mov [rbx+S_POS],rax
+ cmp rax,[rbx+S_N]
+ jae .S_push
+ mov ecx,[rbx+rax*4+S_CP]
+.S_suffix_repeat:
+ cmp ecx,0xe46
+ jne .S_push
+ cmp dword ptr [rbx+rax*4+S_CP-4],0xe46
+ je .S_push
+ inc qword ptr [rbx+S_POS]
+ inc qword ptr [rbx+S_WORDLEN]
+ jmp .S_push
+.S_suffix_restore:
+ mov rax,[rbx+S_CURRENT]
+ add rax,[rbx+S_WORDLEN]
+ mov [rbx+S_POS],rax
+.S_push:
+ mov rax,[rbx+S_CURRENT]
+ add rax,[rbx+S_WORDLEN]
+ cmp rax,[rbx+S_CURRENT]
+ jbe .S_fallback
+ cmp rax,[rbx+S_N]
+ ja .S_fallback
+ mov [rbx+S_POS],rax
+ mov byte ptr [rbx+rax+S_BREAK],1
+ jmp .S_loop
+.S_output_start:
+ xor r13d,r13d
+ mov r14d,1
+ xor r15d,r15d
+.S_output_next:
+ cmp r14,[rbx+S_N]
+ ja .S_output_done
+ cmp byte ptr [rbx+r14+S_BREAK],0
+ je .S_output_advance
+ cmp qword ptr [rbx+S_CAP],0
+ je .S_output_count
+ cmp r15,[rbx+S_CAP]
+ jae .S_capacity
+ mov rdx,[rbx+S_OUT]
+ test rdx,rdx
+ jz .S_fallback
+ mov rax,r15
+ shl rax,4
+ add rdx,rax
+ mov rax,[rbx+r13*8+S_MAP]
+ mov [rdx],rax
+ mov rax,[rbx+r14*8+S_MAP]
+ mov [rdx+8],rax
+.S_output_count:
+ inc r15
+ mov r13,r14
+.S_output_advance:
+ inc r14
+ jmp .S_output_next
+.S_output_done:
+ mov rax,r15
+ jmp .S_return
+.S_capacity:
+ mov rax,-28
+ jmp .S_return
+.S_fallback:
+ mov rax,-1
+.S_return:
+ add rsp,S_FRAME
+ pop r15
+ pop r14
+ pop r13
+ pop r12
+ pop rbp
+ pop rbx
+ ret
+.section .rodata
+.Lcomplex_dictionary_table:
+ .quad .Ldictionary_thai-.Lcomplex_dictionary_table,0xe00
+ .quad .Ldictionary_lao-.Lcomplex_dictionary_table,0xe80
+ .quad .Ldictionary_burmese-.Lcomplex_dictionary_table,0x1000
+ .quad .Ldictionary_khmer-.Lcomplex_dictionary_table,0x1780

@@ -2,11 +2,21 @@
   "reference_version": "0.24.5",
   "scope": "Command-dialog comparison, isolated profiles; no fabricated sessions/plugins",
   "frames": [
+    "docs/ui-captures/reference/dialog-model.png",
+    "docs/ui-captures/reference/dialog-theme.png",
+    "docs/ui-captures/reference/dialog-resume.png",
+    "docs/ui-captures/reference/dialog-extensions.png",
+    "docs/ui-captures/reference/dialog-agents-manage.png",
+    "docs/ui-captures/reference/dialog-help.png",
+    "docs/ui-captures/reference/dialog-auth.png",
+    "docs/ui-captures/reference/dialog-settings.png",
     "docs/ui-captures/native/dialog-model.png",
     "docs/ui-captures/native/dialog-theme.png",
     "docs/ui-captures/native/dialog-resume.png",
     "docs/ui-captures/native/dialog-extensions.png",
     "docs/ui-captures/native/dialog-agents-manage.png",
-    "docs/ui-captures/native/dialog-help.png"
+    "docs/ui-captures/native/dialog-help.png",
+    "docs/ui-captures/native/dialog-auth.png",
+    "docs/ui-captures/native/dialog-settings.png"
   ]
 }

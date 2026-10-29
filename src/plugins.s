@@ -24,6 +24,9 @@
 .Lpg_config: .asciz ".config"
 .Lpg_qwengo: .asciz "qwen-go"
 .Lpg_project: .asciz ".qwen-go"
+.Lpg_modern: .asciz ".qwen"
+.Lpg_extensions_dir: .asciz "extensions"
+.Lpg_disabled_marker: .asciz ".qwen-x86-disabled"
 .Lpg_plugins_dir: .asciz "plugins"
 .Lpg_commands_dir: .asciz "commands"
 .Lpg_skills_dir: .asciz "skills"
@@ -427,6 +430,16 @@
  test rax,rax
  js .Lpg_plugin_return
  mov r12,rax
+ # A native management disable is effective in the actual prompt/MCP loader.
+ # Existence fails closed; a marker symlink is never followed.
+ mov eax,262
+ mov rdi,r12
+ lea rsi,[rip+.Lpg_disabled_marker]
+ mov rdx,rsp
+ mov r10d,256
+ syscall
+ cmp rax,-2
+ jne .Lpg_plugin_close
  mov r14,qword ptr [rip+.Lpg_map]
  mov rax,qword ptr [rip+.Lpg_plugins]
  imul rax,rax,P_PLUGIN
@@ -1084,7 +1097,13 @@ plugins_init:
  mov qword ptr [rip+.Lpg_map],rax
  mov rdi,r12
  mov esi,1
+ call .Lpg_scan_modern
+ mov rdi,r12
+ mov esi,1
  call .Lpg_scan_tree
+ mov rdi,r13
+ xor esi,esi
+ call .Lpg_scan_modern
  mov rdi,r13
  xor esi,esi
  call .Lpg_scan_tree
@@ -1651,3 +1670,47 @@ plugins_set_mcp_callback:
 .Lpg_list_mcp_ready: .asciz "  MCP configured: server startup and tool calls require approval.\n"
 .Lpg_list_mcp_bad: .asciz "  MCP configuration rejected or unavailable; no server started.\n"
 .section .note.GNU-stack,"",@progbits
+
+# Source-compatible local extension directory discovery, in addition to the
+# original native prototype paths. All resources keep the same nofollow bounds.
+.section .text
+.Lpg_scan_modern:
+ push rbx
+ push r12
+ push r13
+ mov r13,rsi
+ call .Lpg_path_dir
+ test rax,rax
+ js .Lpg_modern_done
+ mov r12,rax
+ mov rdi,rax
+ lea rsi,[rip+.Lpg_modern]
+ call .Lpg_child_dir
+ mov rbx,rax
+ mov eax,3
+ mov rdi,r12
+ syscall
+ test rbx,rbx
+ js .Lpg_modern_done
+ mov rdi,rbx
+ lea rsi,[rip+.Lpg_extensions_dir]
+ call .Lpg_child_dir
+ mov r12,rax
+ mov eax,3
+ mov rdi,rbx
+ syscall
+ test r12,r12
+ js .Lpg_modern_done
+ mov rdi,r12
+ lea rsi,[rip+.Lpg_root_entry]
+ mov rdx,r13
+ xor ecx,ecx
+ call .Lpg_walk
+ mov eax,3
+ mov rdi,r12
+ syscall
+.Lpg_modern_done:
+ pop r13
+ pop r12
+ pop rbx
+ ret

@@ -1,5 +1,5 @@
   ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ │
-  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-1ew41g0c/workspace           │ │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
    ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
                                                                                                    █
   Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           █
@@ -20,10 +20,10 @@
   │                                                                                              │
   │  For more help: https://qwenlm.github.io/qwen-code-docs/                                     │
   │                                                                                              │
-  │                                                                                              │
   │  Tab/Shift+Tab to switch tabs  ·  Esc to cancel                                              │
   │                                                                                              │
   └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
 
 
 

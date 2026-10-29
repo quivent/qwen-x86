@@ -7,12 +7,12 @@ def tool_answer(name,args):return tool_events([(name,args)])
 class UIWorkflowTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):subprocess.run(['make','-s','qwen-x86'],cwd=ROOT,check=True)
- def start(self,handler):
+ def start(self,handler,save=False):
   self.tmp=tempfile.TemporaryDirectory(prefix='qwen-ui-workflow-');self.addCleanup(self.tmp.cleanup);self.root=pathlib.Path(self.tmp.name);self.work=self.root/'workspace';self.work.mkdir();self.home=self.root/'home';self.home.mkdir()
   self.server=ConcurrentServer(handler);self.server.__enter__();self.addCleanup(lambda:self.server.__exit__(None,None,None))
   self.master,self.slave=pty.openpty();fcntl.ioctl(self.slave,termios.TIOCSWINSZ,struct.pack('HHHH',30,100,0,0));self.before=termios.tcgetattr(self.slave)
   env={k:v for k,v in os.environ.items() if k not in ['QWEN_BASE_URL','OPENAI_BASE_URL','QWEN_MODEL','OPENAI_MODEL','OPENAI_API_KEY']};env.update(HOME=str(self.home),QWEN_API_KEY='fixture-only',TERM='xterm-256color')
-  self.proc=subprocess.Popen([str(ROOT/'qwen-x86'),'--no-save','--cwd',str(self.work),'--base-url',self.server.url],stdin=self.slave,stdout=self.slave,stderr=self.slave,env=env,preexec_fn=disable_core);self.raw=bytearray();self.addCleanup(self.stop);self.until(lambda:b'Type your message' in self.raw)
+  self.proc=subprocess.Popen([str(ROOT/'qwen-x86'),*([] if save else ['--no-save']),'--cwd',str(self.work),'--base-url',self.server.url],stdin=self.slave,stdout=self.slave,stderr=self.slave,env=env,preexec_fn=disable_core);self.raw=bytearray();self.addCleanup(self.stop);self.until(lambda:b'Type your message' in self.raw)
  def stop(self):
   if self.proc.poll() is None:self.proc.kill();self.proc.wait(timeout=2)
   os.close(self.master);os.close(self.slave)
@@ -88,7 +88,7 @@ class UIWorkflowTests(unittest.TestCase):
   self.assertEqual(len(self.server.records),0);self.quit()
  def test_unavailable_slash_command_does_not_make_model_request(self):
   self.start(lambda req:answer('ORDINARY_PROMPT_DONE'))
-  marker=len(self.raw);self.send(b'/extensions\r');self.until(lambda:b'Command unavailable' in self.raw[marker:]);self.assertEqual(len(self.server.records),0)
+  marker=len(self.raw);self.send(b'/does-not-exist\r');self.until(lambda:b'Command unavailable' in self.raw[marker:]);self.assertEqual(len(self.server.records),0)
   self.send(b'ordinary prompt\r');self.until(lambda:b'ORDINARY_PROMPT_DONE' in self.raw)
   self.assertEqual([m['content'] for m in self.server.records[0][1]['messages'] if m['role']=='user'],['ordinary prompt']);self.quit()
  def test_help_is_tabbed_modal_and_never_submits_tab_text(self):
@@ -131,5 +131,36 @@ class UIWorkflowTests(unittest.TestCase):
   self.start(handler);self.send(b'/model precise-custom-model\r');self.send(b'/approval-mode plan\r');self.send(b'plan a change\r');self.until(lambda:b'PLAN_RESULT_COMPLETE' in self.raw)
   self.assertFalse((self.work/'denied.txt').exists());self.assertEqual(self.server.records[0][1]['model'],'precise-custom-model')
   tool=self.server.records[1][1]['messages'][-1];self.assertEqual(tool['role'],'tool');self.assertIn('denied',tool['content']);self.quit()
+
+
+ def test_file_and_image_attachments_reach_provider_as_actual_content(self):
+  import base64
+  self.start(lambda req:answer('ATTACHMENTS_DELIVERED'))
+  (self.work/'document λ.txt').write_text('REAL_ATTACHMENT_CONTENT λ')
+  image=b'\x89PNG\r\n\x1a\n'+bytes(range(19));(self.work/'image.png').write_bytes(image)
+  self.send('Inspect @"document λ.txt" and @image.png\r'.encode());self.until(lambda:b'ATTACHMENTS_DELIVERED' in self.raw)
+  parts=self.server.records[0][1]['messages'][-1]['content'];self.assertEqual(parts[0]['text'],'Inspect @"document λ.txt" and @image.png')
+  self.assertIn('REAL_ATTACHMENT_CONTENT λ',parts[1]['text']);self.assertEqual(base64.b64decode(parts[2]['image_url']['url'].split(',')[1]),image);self.quit()
+ def test_rename_modal_and_multiselect_delete_change_saved_sessions(self):
+  self.start(lambda req:answer('SAVED_FOR_SESSION_ACTIONS'),save=True)
+  self.send(b'current session prompt\r');self.until(lambda:b'SAVED_FOR_SESSION_ACTIONS' in self.raw);self.settle()
+  directory=self.home/'.local/state/qwen-x86';active=next(directory.glob('session-*.json'));before=active.read_bytes()
+  marker=len(self.raw);self.send(b'/rename\r');self.until(lambda:b'Rename Session' in self.raw[marker:]);self.send('Reviewed λ title\r'.encode());self.until(lambda:b'Session renamed.' in self.raw)
+  self.assertEqual(active.read_bytes(),before);self.assertEqual(json.loads(pathlib.Path(str(active)+'.title').read_text()),'Reviewed λ title')
+  first=directory/'session-fixture-first.json';second=directory/'session-fixture-second.json'
+  for path,title in [(first,'first disposable session'),(second,'second disposable session')]:path.write_text(json.dumps([{'role':'user','content':title}]))
+  marker=len(self.raw);self.send(b'/delete\r');self.until(lambda:b'Delete Sessions' in self.raw[marker:]);self.send(b' \x1b[B \r');self.until(lambda:b'Permanently delete selected sessions?' in self.raw);self.send(b'\x1b[B\r');self.until(lambda:b'Selected sessions deleted.' in self.raw)
+  self.assertFalse(first.exists());self.assertFalse(second.exists());self.assertTrue(active.exists());self.assertEqual(len(self.server.records),1);self.quit()
+
+ def test_agent_create_view_and_delete_use_real_definition(self):
+  self.start(lambda req:answer('unused'),save=True)
+  marker=len(self.raw);self.send(b'/agents create\r');self.until(lambda:b'Agent name' in self.raw[marker:]);self.send(b'precise-reviewer\r');self.until(lambda:b'Save to' in self.raw[marker:]);self.send(b'\r');self.until(lambda:b'Agent instructions' in self.raw[marker:]);self.send(b'Inspect actual changes and verify claims.\r');self.until(lambda:b'Agent created.' in self.raw)
+  path=self.work/'.qwen/agents/precise-reviewer.md';self.assertTrue(path.exists());self.assertIn('Inspect actual changes',path.read_text())
+  marker=len(self.raw);self.send(b'/agents manage\r');self.until(lambda:b'precise-reviewer' in self.raw[marker:]);self.send(b'\r');self.until(lambda:b'Choose Action' in self.raw[marker:]);self.send(b'\r');self.until(lambda:b'Inspect actual changes' in self.raw[marker:]);self.send(b'\x1b');self.send(b'\x1b[B\x1b[B\r');self.until(lambda:b'Delete this agent definition?' in self.raw[marker:]);self.send(b'\x1b[B\r');self.until(lambda:not path.exists());self.send(b'\x1b');self.assertEqual(len(self.server.records),0);self.quit()
+ def test_extension_toggle_changes_actual_prompt_command_availability(self):
+  self.start(lambda req:answer('PLUGIN_PROMPT_ACTUALLY_EXECUTED'),save=True)
+  directory=self.work/'.qwen/extensions/native-demo';directory.mkdir(parents=True);(directory/'qwen-extension.json').write_text('{"name":"native-demo","version":"1"}');(directory/'commands').mkdir();(directory/'commands/review.md').write_text('Review $ARGUMENTS carefully.')
+  self.send(b'/reload-plugins\r');marker=len(self.raw);self.send(b'/extensions\r');self.until(lambda:b'native-demo' in self.raw[marker:]);self.send(b' ');self.until(lambda:(directory/'.qwen-x86-disabled').exists());self.send(b'\x1b');self.send(b'/native-demo:review changes\r');self.settle();self.assertEqual(len(self.server.records),0)
+  marker=len(self.raw);self.send(b'/extensions\r');self.until(lambda:b'native-demo' in self.raw[marker:]);self.send(b' ');self.until(lambda:not (directory/'.qwen-x86-disabled').exists());self.send(b'\x1b');self.send(b'/native-demo:review changes\r');self.until(lambda:b'PLUGIN_PROMPT_ACTUALLY_EXECUTED' in self.raw);self.assertEqual(self.server.records[0][1]['messages'][-1]['content'],'Review changes carefully.');self.quit()
 
 if __name__=='__main__':unittest.main()

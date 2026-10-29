@@ -10,8 +10,14 @@ class UIPreferencesTests(unittest.TestCase):
   subprocess.run(['ld','-shared',str(base/'ui_preferences.o'),str(base/'json.o'),'-o',str(base/'preferences.so')],check=True)
   cls.lib=C.CDLL(str(base/'preferences.so'))
   cls.lib.ui_preferences_config.argtypes=[C.c_char_p,C.c_char_p,C.c_size_t];cls.lib.ui_preferences_config.restype=C.c_int64
+  cls.lib.ui_preferences_read_settings.argtypes=[C.c_size_t,C.c_size_t,C.c_void_p,C.c_size_t];cls.lib.ui_preferences_read_settings.restype=C.c_int64
+  cls.lib.ui_preferences_get_api_key_for.argtypes=[C.c_char_p,C.c_char_p];cls.lib.ui_preferences_get_api_key_for.restype=C.c_void_p
+  cls.lib.ui_preferences_set_connection.argtypes=[C.c_void_p,C.c_size_t];cls.lib.ui_preferences_set_connection.restype=C.c_int64
   cls.lib.ui_preferences_get_theme.restype=C.c_void_p
   cls.lib.ui_preferences_set_theme.argtypes=[C.c_char_p,C.c_size_t];cls.lib.ui_preferences_set_theme.restype=C.c_int64
+  for field in ['model','base_url','auth_type','api_key_env','key_source','api_key','approval_mode']:
+   get=getattr(cls.lib,'ui_preferences_get_'+field);get.restype=C.c_void_p
+   put=getattr(cls.lib,'ui_preferences_set_'+field);put.argtypes=[C.c_char_p,C.c_size_t];put.restype=C.c_int64
  @classmethod
  def tearDownClass(cls):cls.build.cleanup()
  def setUp(self):
@@ -24,6 +30,44 @@ class UIPreferencesTests(unittest.TestCase):
  def path(self,scope=0):return self.cwd/'.qwen-x86/ui.json' if scope else self.home/'.config/qwen-x86/ui.json'
  def write(self,value,scope=0):
   p=self.path(scope);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(value);return p
+ def test_private_raw_key_and_connection_commit_are_atomic_and_redacted_by_api(self):
+  self.assertEqual(self.lib.ui_preferences_set_api_key(b'private-fixture-key',0),0)
+  p=self.path();self.assertEqual(stat.S_IMODE(p.stat().st_mode),0o600);self.assertEqual(C.string_at(self.lib.ui_preferences_get_api_key()),b'private-fixture-key')
+  p.chmod(0o644);self.assertFalse(self.lib.ui_preferences_get_api_key());p.chmod(0o600)
+  self.assertEqual(self.lib.ui_preferences_set_api_key(b'forbidden-project',1),-22)
+  original=p.read_bytes()
+  record=(C.c_char_p*6)(b'anthropic',b'actual-model',b'https://provider.example/v1',b'',b'next-private-key',b'stored')
+  self.assertEqual(self.lib.ui_preferences_set_connection(record,0),0);data=json.loads(p.read_text());self.assertEqual(data['authType'],'anthropic');self.assertEqual(data['model'],'actual-model');self.assertEqual(data['apiKey'],'next-private-key');self.assertEqual(data['apiKeySource'],'stored');self.assertEqual(data['apiKeyEnv'],'');self.assertEqual(stat.S_IMODE(p.stat().st_mode),0o600)
+  self.assertEqual(C.string_at(self.lib.ui_preferences_get_api_key_for(b'anthropic',b'https://provider.example/v1')),b'next-private-key')
+  self.assertFalse(self.lib.ui_preferences_get_api_key_for(b'openai',b'https://provider.example/v1'));self.assertFalse(self.lib.ui_preferences_get_api_key_for(b'anthropic',b'https://attacker.example/v1'))
+  self.write('{"authType":"anthropic","baseUrl":"https://attacker.example/v1"}',1);self.assertFalse(self.lib.ui_preferences_get_api_key_for(b'anthropic',b'https://attacker.example/v1'))
+  before=p.read_bytes();record[3]=b'bad-name';self.assertEqual(self.lib.ui_preferences_set_connection(record,0),-22);self.assertEqual(p.read_bytes(),before)
+  record[3]=b'PROVIDER_KEY';record[4]=b'';record[5]=b'environment';self.assertEqual(self.lib.ui_preferences_set_connection(record,0),0);self.assertFalse(self.lib.ui_preferences_get_api_key());self.assertEqual(C.string_at(self.lib.ui_preferences_get_api_key_env()),b'PROVIDER_KEY')
+  self.configure(0);before=p.read_bytes();record[4]=b'temporary-key';self.assertEqual(self.lib.ui_preferences_set_connection(record,0),0);self.assertEqual(p.read_bytes(),before)
+ def test_source_settings_reader_is_readonly_bounded_and_rejects_symlinks(self):
+  out=C.create_string_buffer(65536)
+  for scope,base in [(0,self.home),(1,self.cwd)]:
+   d=base/'.qwen';d.mkdir();p=d/'settings.json';raw=b'{"modelProviders":{"openai":[{"id":"configured"}]},"customThemes":{"Mine":{"Foreground":"#123"}}}';p.write_bytes(raw);p.chmod(0o600)
+   self.assertEqual(self.lib.ui_preferences_read_settings(scope,1,out,len(out)),len(raw));self.assertEqual(out.raw[:len(raw)],raw)
+   self.assertEqual(self.lib.ui_preferences_read_settings(scope,1,out,1),-28);self.assertEqual(p.read_bytes(),raw)
+   p.unlink();target=base/'elsewhere';target.write_bytes(raw);p.symlink_to(target)
+   self.assertLess(self.lib.ui_preferences_read_settings(scope,1,out,len(out)),0);self.assertEqual(target.read_bytes(),raw)
+ def test_provider_model_fields_persist_without_plaintext_credentials(self):
+  fields={'model':('model','actual-configured-model'),'base_url':('baseUrl','https://provider.example/v1'),'auth_type':('authType','openai'),'api_key_env':('apiKeyEnv','TEAM_API_KEY')}
+  for field,(key,value) in fields.items():
+   self.assertEqual(getattr(self.lib,'ui_preferences_set_'+field)(value.encode(),0),0)
+   ptr=getattr(self.lib,'ui_preferences_get_'+field)();self.assertEqual(C.string_at(ptr).decode(),value)
+  saved=json.loads(self.path().read_text());self.assertEqual({key:saved[key] for key,_ in fields.values()},{key:value for key,value in fields.values()})
+  self.assertNotIn('apiKey',saved);self.assertEqual(stat.S_IMODE(self.path().stat().st_mode),0o600)
+  ptr=self.lib.ui_preferences_get_model();self.lib.ui_preferences_get_base_url();self.assertEqual(C.string_at(ptr).decode(),'actual-configured-model')
+  self.assertEqual(self.lib.ui_preferences_set_model(b'workspace-model',1),0);self.assertEqual(C.string_at(self.lib.ui_preferences_get_model()),b'workspace-model')
+  for invalid in [b'ACTUAL-SECRET',b'KEY=value',b'9BAD',b'BAD\nKEY']:
+   self.assertEqual(self.lib.ui_preferences_set_api_key_env(invalid,0),-22)
+  self.configure(0);before=self.path().read_bytes();self.assertEqual(self.lib.ui_preferences_set_model(b'temporary',0),0);self.assertEqual(self.path().read_bytes(),before)
+ def test_provider_reads_reject_group_writable_steering_config(self):
+  self.assertEqual(self.lib.ui_preferences_set_model(b'trusted',0),0)
+  self.path().chmod(0o666);self.assertFalse(self.lib.ui_preferences_get_model())
+  self.path().chmod(0o600);self.assertEqual(C.string_at(self.lib.ui_preferences_get_model()),b'trusted')
  def test_scopes_user_default_project_override_and_private_atomic_files(self):
   self.assertIsNone(self.get());self.assertEqual(self.put('Dracula'),0);self.assertEqual(self.get(),'Dracula')
   self.assertEqual(self.put('Light',1),0);self.assertEqual(self.get(),'Light')

@@ -203,7 +203,9 @@ class CLITest(unittest.TestCase):
     def setUpClass(cls):
         cls.build = tempfile.TemporaryDirectory(prefix="qwen-x86-cli-")
         build = Path(cls.build.name)
-        names = ("main", "runtime", "json", "stream", "terminal", "tools", "http", "net", "agents", "plugins", "mcp", "mcp_server", "oauth", "sha256", "ui", "ui_input", "ui_markdown", "ui_mermaid", "ui_sessions", "ui_external_editor", "ui_paths", "ui_tool_preview", "ui_shell", "ui_preferences", "ui_error_response", "ui_help")
+        # Keep the HTTP-only TLS-stub fixture aligned with production modules.
+        source_line=next(line for line in (ROOT/'Makefile').read_text().splitlines() if line.startswith('SOURCES :='))
+        names=tuple(name for name in source_line.split(':=',1)[1].split() if name not in {'tls','x25519','aesgcm','rsa','x509'})
         for name in names:
             subprocess.run(["as", "--64", "-I", str(ROOT / "src"), "-o", str(build / (name + ".o")), str(ROOT / "src" / (name + ".s"))], cwd=ROOT, check=True)
         stub = build / "tls-test-stub.s"

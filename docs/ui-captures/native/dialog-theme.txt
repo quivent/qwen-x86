@@ -1,5 +1,5 @@
   ██║▄▄ ██║██║███╗██║██╔══╝  ██║╚██╗██║  │ API Key | bench-model (/model to change)              │ │
-  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-1ew41g0c/workspace           │ │
+  ╚██████╔╝╚███╔███╔╝███████╗██║ ╚████║  │ /tmp/qwen-dialog-capture-ctxsc6k9/workspace           │ │
    ╚══▀▀═╝  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═══╝  └───────────────────────────────────────────────────────┘ │
                                                                                                    █
   Tips: Add a QWEN.md file to give Qwen Code persistent project context.                           █
@@ -18,13 +18,13 @@
   │   9. GitHub Dark                           │  1 - print("Hello, " + name)                  │ │
   │   10. Shades Of Purple Dark                │  2 + print(f"Hello, {name}!")                 │ │
   │   11. ANSI Light Light                     │                                               │ │
-  │   12. Ayu Light Light                      └───────────────────────────────────────────────┘ │
-  │                                                                                              │
+  │                                            └───────────────────────────────────────────────┘ │
   │                                                                                              │
   │                                                                                              │
   │ (Use Enter to select, Tab to configure scope)                                                │
   │                                                                                              │
   ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+
 
 
 
