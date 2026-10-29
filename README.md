@@ -1,5 +1,33 @@
 # qwen-x86
 
+**103,120 bytes (100.7 KiB)** — statically linked x86-64 assembly, including TLS and cryptography. No libc, Node.js, Go runtime, or shared TLS library.
+
+## Benchmarks
+
+### Current tool-loop performance
+
+Twenty randomized runs per variant and transport on this machine. Lower is better. The same five tool steps and their outputs are verified in each run.
+
+| Client | HTTP median | HTTP p95 | HTTPS median | HTTPS p95 |
+|---|---:|---:|---:|---:|
+| **qwen-x86 optimized** | 41.8 ms | 52.6 ms | 47.6 ms | 70.4 ms |
+| qwen-go | 100.6 ms | 117.9 ms | 65.6 ms | 93.7 ms |
+| qwen-x86 before optimization | 205.7 ms | 301.6 ms | 236.5 ms | 274.6 ms |
+
+The optimized HTTPS median is **4.97× faster than the assembly baseline** and **27.4% lower than Go**. These are client gaps between model responses and subsequent requests, excluding model preparation. TCP_NODELAY and kernel child-exit notifications remove avoidable waits. [Raw measurements, equations, and uncertainty](docs/wait-optimization.json).
+
+### Three-client baseline
+
+These earlier measurements preceded the wait optimization. Streaming and memory figures are five-run medians; memory was sampled in a separate pass. Startup uses 50 warm runs.
+
+| Measurement | qwen-x86 baseline | qwen-go | Original JavaScript |
+|---|---:|---:|---:|
+| Warm `--version` startup | 0.35 ms | 3.53 ms | 66.91 ms |
+| 64 KiB stream, first response byte → exit | 21.5 ms | 80.3 ms | 692.5 ms |
+| Peak proportional memory during that stream | 0.37 MiB | 13.55 MiB | 257.98 MiB |
+
+Local controlled fixtures measure client overhead. The clients have different feature sets; JavaScript includes extra default cleanup. These results do not measure real model inference, WAN latency, or interactive TUI rendering. [Usage methodology](docs/usage-benchmark.json) · [Startup methodology](docs/benchmark.json) · [Detailed optimization](#critical-path-wait-optimization).
+
 A Linux x86-64 coding client written in GNU Intel-syntax assembly. The production executable is statically linked assembly: no libc, JavaScript engine, Go runtime, shared TLS library, or HTTPS helper process.
 
 
@@ -75,7 +103,7 @@ The five tools read about 32 KiB, write about 8 KiB, read the written file, edit
 
 Two native workers each receive a 150 ms fixture delay and demonstrably overlap: response-to-exit median is 247.8 ms for assembly and 212.7 ms for Go. The JavaScript agent interface was not included in that comparison.
 
-Go currently has lower tool round-trip latency, while assembly consumes less CPU and memory. The ACK diagnostic changes only server TCP acknowledgement scheduling: assembly's total HTTPS tool gap falls from 243.098 ms to 64.05 ms. Go stays near 64.35–72.797 ms. This supports Nagle/delayed-ACK interaction as a major cause. Go enables TCP_NODELAY; that baseline assembly binary did not. Its shell runner could also add a 100 ms child-reaping polling delay. Those baseline measurements preceded the optimization below.
+In that baseline, Go had lower tool round-trip latency, while assembly consumed less CPU and memory. The ACK diagnostic changes only server TCP acknowledgement scheduling: assembly's total HTTPS tool gap falls from 243.098 ms to 64.05 ms. Go stays near 64.35–72.797 ms. This supports Nagle/delayed-ACK interaction as a major cause. Go enables TCP_NODELAY; that baseline assembly binary did not. Its shell runner could also add a 100 ms child-reaping polling delay. Those baseline measurements preceded the optimization below.
 
 Output mode matters: original JavaScript headless text mode exposes the first marker at 675.3 ms in this paced fixture; explicit `stream-json --include-partial-messages` exposes it at 13.4 ms (three runs). The text-mode figure does not establish interactive first-token latency.
 
