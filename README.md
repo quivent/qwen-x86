@@ -31,20 +31,50 @@ Local controlled fixtures measure client overhead. The clients have different fe
 A Linux x86-64 coding client written in GNU Intel-syntax assembly. The production executable is statically linked assembly: no libc, JavaScript engine, Go runtime, shared TLS library, or HTTPS helper process.
 
 
-## Build and run
+## Install globally
 
-Requires Linux x86-64, GNU `as`, and GNU `ld`. HTTPS requires an AES-NI capable processor and a PEM CA trust store, normally `/etc/ssl/certs/ca-certificates.crt`.
+The prebuilt Linux x86-64 executable is available in [Releases](https://github.com/quivent/qwen-x86/releases/tag/v0.1.0). It includes TLS and cryptography. Running it requires Linux x86-64, AES-NI, and a PEM CA trust store, normally `/etc/ssl/certs/ca-certificates.crt`.
+
+While the repository is private, use an authenticated GitHub CLI account with repository access:
 
 ```sh
-make
-./qwen-x86 --demo --no-save
-./qwen-x86 login
-./qwen-x86
-# Or use an API key:
-QWEN_API_KEY=your-key ./qwen-x86
-./qwen-x86 --prompt 'Inspect this workspace and explain its entry point'
-make install
+set -e
+install_dir=$(mktemp -d)
+gh release download v0.1.0 --repo quivent/qwen-x86 --pattern qwen-x86-linux-amd64 --pattern SHA256SUMS --dir "$install_dir"
+(cd "$install_dir" && sha256sum --check SHA256SUMS)
+sudo install -m 755 "$install_dir/qwen-x86-linux-amd64" /usr/local/bin/qwen-x86
+rm -r "$install_dir"
 ```
+
+Then run it from any directory:
+
+```sh
+qwen-x86 login
+qwen-x86
+```
+
+Or use an API key:
+
+```sh
+QWEN_API_KEY=your-key qwen-x86
+qwen-x86 --prompt 'Inspect this workspace and explain its entry point'
+```
+
+For a user-only installation without `sudo`, replace the `sudo install` line with `install -D -m 755 "$install_dir/qwen-x86-linux-amd64" "$HOME/.local/bin/qwen-x86"` and ensure `~/.local/bin` is on your `PATH`.
+
+<details>
+<summary>Build from source (developers)</summary>
+
+Requires GNU `as` and GNU `ld`. Clone using SSH and install the command into `~/.local/bin`:
+
+```sh
+git clone git@github.com:quivent/qwen-x86.git
+cd qwen-x86
+make install
+qwen-x86 --version
+```
+
+</details>
 
 `login` (or `--login`) uses Qwen device authorization with native HTTPS and PKCE. It prints a verification URL and user code for browser approval, then saves a private cache at `~/.config/qwen-x86/oauth.json`. Access and refresh tokens are never printed. Native credentials refresh under a cross-process file lock; unexpired Go/Qwen Code caches can be reused read-only, and expired external caches require a native login. OAuth defaults to `coder-model` and the issued resource URL; explicit endpoint/model settings take precedence.
 

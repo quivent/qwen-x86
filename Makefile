@@ -16,6 +16,6 @@ qwen-x86: $(OBJECTS)
 test: qwen-x86
 	$(PYTHON) -m unittest discover -s tests -p 'test_*.py' -v
 install: qwen-x86
-	install -m 755 qwen-x86 $(HOME)/.local/bin/qwen-x86
+	install -D -m 755 qwen-x86 "$(HOME)/.local/bin/qwen-x86"
 clean:
 	rm -rf build qwen-x86
